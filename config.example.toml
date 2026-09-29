@@ -16,22 +16,29 @@ sidebar_collapsed = false
 # Profile used for new tabs (defaults to the first discovered shell).
 # default_profile = "fish"
 
+# Color theme: a built-in (default, catppuccin-latte, gruvbox-dark, tokyo-night) or the name of
+# a file in the themes folder next to this config (<name>.toml, or <name>.conf in kitty format).
+# theme = "tokyo-night"
+
+# Or point at any theme file directly (vtt .toml, or kitty format for anything else).
+# It is watched: when the file changes, vtt recolors live.
+# theme_file = "~/.config/vtt/themes/mine.toml"
+
+# When a shell sets colors via escape sequences (pywal, wallust and many wallpaper scripts do
+# this for every open terminal), apply them to the whole app instead of just that tab.
+adopt_shell_palette = false
+
 [font]
 # Font family; defaults to the system monospace font.
 # family = "JetBrains Mono"
 size = 14.0
 
-# Terminal palette (Catppuccin Mocha by default).
+# Inline color overrides, applied on top of the theme. Same keys as a theme file:
+# foreground, background, cursor, selection, ansi = [16 colors], colorN (any index 0-255),
+# and [colors.ui] accent / sidebar.
 [colors]
-foreground = "#cdd6f4"
-background = "#1e1e2e"
-cursor = "#f5e0dc"
-selection = "#585b70"
-# 16 ANSI colors: normal 0-7, then bright 8-15.
-ansi = [
-  "#45475a", "#f38ba8", "#a6e3a1", "#f9e2af", "#89b4fa", "#f5c2e7", "#94e2d5", "#bac2de",
-  "#585b70", "#f38ba8", "#a6e3a1", "#f9e2af", "#89b4fa", "#f5c2e7", "#94e2d5", "#a6adc8",
-]
+# background = "#101010"
+# color4 = "#7aa2f7"
 
 # Shortcut overrides. Setting an action replaces all of its defaults.
 # Use a list for several chords, or [] to unbind an action.

@@ -7,14 +7,13 @@ use eframe::egui::{
     pos2, vec2,
 };
 
-use crate::app::{App, TabDrag, shade};
+use crate::app::{App, TabDrag};
 use crate::keybinds::Action as Shortcut;
 use crate::session::TabId;
+use crate::theme::mix;
 
 const COLLAPSED_WIDTH: f32 = 48.0;
 const ROW_HEIGHT: f32 = 30.0;
-const ACCENT: Color32 = Color32::from_rgb(0x89, 0xb4, 0xfa);
-const BELL: Color32 = Color32::from_rgb(0xfa, 0xb3, 0x87);
 
 enum Action {
     Activate(TabId),
@@ -193,7 +192,7 @@ impl App {
                 .map(|(_, r)| r.top())
                 .unwrap_or_else(|| row_rects.last().unwrap().1.bottom());
             ui.painter()
-                .hline(list_rect.x_range(), y, Stroke::new(2.0, ACCENT));
+                .hline(list_rect.x_range(), y, Stroke::new(2.0, self.chrome.accent));
             if ui.ctx().input(|i| i.pointer.any_released()) {
                 actions.push(Action::Reorder(dragged, idx));
             }
@@ -219,7 +218,7 @@ impl App {
         };
         let painter = ui.painter_at(rect.expand(1.0));
         let visuals = ui.visuals().clone();
-        let base = visuals.panel_fill;
+        let c = self.chrome.clone();
 
         let focused = self.ws.focused() == Some(id);
         let view = self.ws.view_of(id);
@@ -228,11 +227,11 @@ impl App {
 
         // Background.
         let bg = if focused {
-            shade(base, 1.9)
+            c.raised_sidebar(0.16)
         } else if in_active {
-            shade(base, 1.45)
+            c.raised_sidebar(0.09)
         } else if resp.hovered() {
-            shade(base, 1.3)
+            c.raised_sidebar(0.06)
         } else {
             Color32::TRANSPARENT
         };
@@ -252,9 +251,9 @@ impl App {
                 rect.bottom() - 5.0
             };
             let color = if in_active {
-                ACCENT
+                self.chrome.accent
             } else {
-                shade(ACCENT, 0.55)
+                mix(c.accent, c.sidebar, 0.5)
             };
             painter.rect_filled(
                 Rect::from_min_max(pos2(rect.left(), top), pos2(rect.left() + 3.0, bottom)),
@@ -274,14 +273,14 @@ impl App {
             .profile
             .color
             .map(|[r, g, b]| Color32::from_rgb(r, g, b))
-            .unwrap_or(shade(base, 2.6));
+            .unwrap_or(c.raised_sidebar(0.28));
         painter.rect_filled(icon_rect, CornerRadius::same(5), icon_color);
         painter.text(
             icon_rect.center(),
             Align2::CENTER_CENTER,
             &tab.profile.icon,
             FontId::monospace(12.0),
-            readable_on(icon_color),
+            c.readable_on(icon_color),
         );
 
         let text_color = if focused || in_active {
@@ -294,9 +293,9 @@ impl App {
 
         // Unread / bell badges.
         let badge = if bell {
-            Some(BELL)
+            Some(c.bell)
         } else if activity {
-            Some(ACCENT)
+            Some(self.chrome.accent)
         } else {
             None
         };
@@ -347,7 +346,7 @@ impl App {
             if resp.hovered() || ui.rect_contains_pointer(close_rect) {
                 let close = ui.interact(close_rect, Id::new(("close_tab", id)), Sense::click());
                 let fill = if close.hovered() {
-                    shade(base, 2.6)
+                    c.raised_sidebar(0.28)
                 } else {
                     Color32::TRANSPARENT
                 };
@@ -368,14 +367,14 @@ impl App {
             painter.circle_stroke(
                 icon_rect.right_top() + vec2(-1.0, 1.0),
                 4.5,
-                Stroke::new(1.5, base),
+                Stroke::new(1.5, c.sidebar),
             );
         }
         if focused && !expanded {
             painter.rect_stroke(
                 icon_rect.expand(2.5),
                 CornerRadius::same(7),
-                Stroke::new(1.5, ACCENT),
+                Stroke::new(1.5, self.chrome.accent),
                 StrokeKind::Outside,
             );
         }
@@ -447,21 +446,21 @@ impl App {
         let galley = painter.layout_no_wrap(
             tab.title().to_string(),
             FontId::proportional(13.0),
-            Color32::WHITE,
+            self.chrome.fg,
         );
         let rect = Rect::from_min_size(pos + vec2(14.0, 10.0), galley.size() + vec2(16.0, 10.0));
         painter.rect_filled(
             rect,
             CornerRadius::same(6),
-            Color32::from_rgba_unmultiplied(0x31, 0x32, 0x44, 235),
+            self.chrome.raised(0.12).gamma_multiply(0.95),
         );
         painter.rect_stroke(
             rect,
             CornerRadius::same(6),
-            Stroke::new(1.0, ACCENT),
+            Stroke::new(1.0, self.chrome.accent),
             StrokeKind::Inside,
         );
-        painter.galley(rect.min + vec2(8.0, 5.0), galley, Color32::WHITE);
+        painter.galley(rect.min + vec2(8.0, 5.0), galley, self.chrome.fg);
     }
 
     fn apply(&mut self, action: Action) {
@@ -493,15 +492,5 @@ impl App {
                 self.ws.reorder(id, idx);
             }
         }
-    }
-}
-
-/// Black or white, whichever reads better on `bg`.
-fn readable_on(bg: Color32) -> Color32 {
-    let lum = 0.299 * bg.r() as f32 + 0.587 * bg.g() as f32 + 0.114 * bg.b() as f32;
-    if lum > 150.0 {
-        Color32::from_rgb(0x11, 0x11, 0x1b)
-    } else {
-        Color32::WHITE
     }
 }

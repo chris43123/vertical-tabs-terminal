@@ -8,38 +8,28 @@ use alacritty_terminal::vte::ansi::{Color, CursorShape, NamedColor};
 use eframe::egui::{self, Color32, Mesh, Pos2, Rect, Shape, Vec2, pos2};
 
 use super::font::{Fonts, Style};
-use crate::config::{ColorConfig, parse_hex};
 use crate::session::{GridSize, Listener};
+use crate::theme::Theme;
 
 #[derive(Clone, Debug)]
 pub struct Palette {
-    ansi: [Color32; 16],
+    /// Full 256-color table (theme overrides already applied).
+    table: [Color32; 256],
     fg: Color32,
     bg: Color32,
     cursor: Color32,
     selection: Color32,
 }
 
-fn hex(s: &str, fallback: Color32) -> Color32 {
-    parse_hex(s)
-        .map(|[r, g, b]| Color32::from_rgb(r, g, b))
-        .unwrap_or(fallback)
-}
-
 impl Palette {
-    pub fn from_config(c: &ColorConfig) -> Self {
-        let defaults = ColorConfig::default();
-        let mut ansi = [Color32::GRAY; 16];
-        for (i, slot) in ansi.iter_mut().enumerate() {
-            let d = hex(&defaults.ansi[i], Color32::GRAY);
-            *slot = c.ansi.get(i).map(|s| hex(s, d)).unwrap_or(d);
-        }
+    pub fn from_theme(t: &Theme) -> Self {
+        let c = |[r, g, b]: [u8; 3]| Color32::from_rgb(r, g, b);
         Self {
-            ansi,
-            fg: hex(&c.foreground, Color32::LIGHT_GRAY),
-            bg: hex(&c.background, Color32::BLACK),
-            cursor: hex(&c.cursor, Color32::LIGHT_GRAY),
-            selection: hex(&c.selection, Color32::DARK_GRAY),
+            table: t.colors.map(c),
+            fg: c(t.foreground),
+            bg: c(t.background),
+            cursor: c(t.cursor),
+            selection: c(t.selection),
         }
     }
 
@@ -53,30 +43,19 @@ impl Palette {
 
     /// The 256-color palette entry for `i` (without terminal overrides).
     pub fn indexed(&self, i: u8) -> Color32 {
-        match i {
-            0..=15 => self.ansi[i as usize],
-            16..=231 => {
-                let i = i - 16;
-                let level = |v: u8| if v == 0 { 0 } else { 55 + v * 40 };
-                Color32::from_rgb(level(i / 36), level((i / 6) % 6), level(i % 6))
-            }
-            232..=255 => {
-                let v = 8 + 10 * (i - 232);
-                Color32::from_rgb(v, v, v)
-            }
-        }
+        self.table[i as usize]
     }
 
     fn named(&self, n: NamedColor) -> Color32 {
         let idx = n as usize;
         match n {
-            _ if idx < 16 => self.ansi[idx],
+            _ if idx < 16 => self.table[idx],
             NamedColor::Foreground | NamedColor::BrightForeground => self.fg,
             NamedColor::Background => self.bg,
             NamedColor::Cursor => self.cursor,
             NamedColor::DimForeground => dim(self.fg),
             // DimBlack..DimWhite map to the normal colors, dimmed.
-            _ => dim(self.ansi[(idx - NamedColor::DimBlack as usize) % 8]),
+            _ => dim(self.table[(idx - NamedColor::DimBlack as usize) % 8]),
         }
     }
 }
@@ -539,7 +518,7 @@ mod tests {
 
     #[test]
     fn color_cube_and_grayscale() {
-        let p = Palette::from_config(&ColorConfig::default());
+        let p = Palette::from_theme(&Theme::default());
         assert_eq!(p.indexed(16), Color32::from_rgb(0, 0, 0));
         assert_eq!(p.indexed(21), Color32::from_rgb(0, 0, 255));
         assert_eq!(p.indexed(196), Color32::from_rgb(255, 0, 0));
@@ -552,7 +531,7 @@ mod tests {
 
     #[test]
     fn named_colors() {
-        let p = Palette::from_config(&ColorConfig::default());
+        let p = Palette::from_theme(&Theme::default());
         assert_eq!(p.named(NamedColor::Background), p.background());
         assert_eq!(p.named(NamedColor::Foreground), p.foreground());
         assert_eq!(p.named(NamedColor::DimRed), dim(p.indexed(1)));

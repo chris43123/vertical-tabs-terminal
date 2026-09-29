@@ -9,7 +9,9 @@ mod procinfo;
 mod profiles;
 mod render;
 mod session;
+mod theme;
 mod ui;
+mod watch;
 
 fn main() -> eframe::Result {
     let config = config::Config::load();

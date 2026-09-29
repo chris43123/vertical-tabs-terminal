@@ -114,22 +114,29 @@ sidebar_collapsed = false
 # Profile used for new tabs (defaults to the first discovered shell).
 # default_profile = "fish"
 
+# Color theme: a built-in (default, catppuccin-latte, gruvbox-dark, tokyo-night) or the name of
+# a file in the themes folder next to this config (<name>.toml, or <name>.conf in kitty format).
+# theme = "tokyo-night"
+
+# Or point at any theme file directly (vtt .toml, or kitty format for anything else).
+# It is watched: when the file changes, vtt recolors live.
+# theme_file = "~/.config/vtt/themes/mine.toml"
+
+# When a shell sets colors via escape sequences (pywal, wallust and many wallpaper scripts do
+# this for every open terminal), apply them to the whole app instead of just that tab.
+adopt_shell_palette = false
+
 [font]
 # Font family; defaults to the system monospace font.
 # family = "JetBrains Mono"
 size = 14.0
 
-# Terminal palette (Catppuccin Mocha by default).
+# Inline color overrides, applied on top of the theme. Same keys as a theme file:
+# foreground, background, cursor, selection, ansi = [16 colors], colorN (any index 0-255),
+# and [colors.ui] accent / sidebar.
 [colors]
-foreground = "#cdd6f4"
-background = "#1e1e2e"
-cursor = "#f5e0dc"
-selection = "#585b70"
-# 16 ANSI colors: normal 0-7, then bright 8-15.
-ansi = [
-  "#45475a", "#f38ba8", "#a6e3a1", "#f9e2af", "#89b4fa", "#f5c2e7", "#94e2d5", "#bac2de",
-  "#585b70", "#f38ba8", "#a6e3a1", "#f9e2af", "#89b4fa", "#f5c2e7", "#94e2d5", "#a6adc8",
-]
+# background = "#101010"
+# color4 = "#7aa2f7"
 
 # Shortcut overrides. Setting an action replaces all of its defaults.
 # Use a list for several chords, or [] to unbind an action.
@@ -152,6 +159,67 @@ color = "#a6e3a1"
 [profiles.env]
 # FOO = "bar"
 ```
+
+## Themes
+
+Colors come from layers, lowest to highest:
+
+1. The built-in default (Catppuccin Mocha).
+2. `theme = "<name>"` or `theme_file = "<path>"`.
+   - Built-in themes: `default`, `catppuccin-latte`, `gruvbox-dark`, `tokyo-night`.
+   - Any other name loads `<name>.toml` or `<name>.conf` from the `themes/` folder next to your config.
+3. `[colors]` in the config, for one-off overrides.
+4. With `adopt_shell_palette = true`, colors a shell sets at runtime (see below).
+
+Theme files come in two formats:
+
+- **vtt TOML** (`.toml`) uses the same keys as `[colors]`:
+  ```toml
+  foreground = "#c0caf5"
+  background = "#1a1b26"
+  cursor = "#c0caf5"
+  selection = "#33467c"
+  ansi = ["#15161e", "#f7768e", "#9ece6a", "#e0af68", "#7aa2f7", "#bb9af7", "#7dcfff", "#a9b1d6",
+          "#414868", "#f7768e", "#9ece6a", "#e0af68", "#7aa2f7", "#bb9af7", "#7dcfff", "#c0caf5"]
+  color232 = "#101010"   # any palette index
+  [ui]
+  accent = "#7aa2f7"     # optional; defaults to color4
+  sidebar = "#16161e"    # optional; defaults to a shade of the background
+  ```
+- **kitty format** (any other extension). `background`, `foreground`, `cursor`, `selection_background`, `colorN` and `active_border_color` (used as the accent) are read; everything else is ignored. Existing kitty themes and generated theme files therefore work unchanged.
+
+The sidebar, pane headers and palette derive their colors from the theme, so light themes work too.
+
+**Live reload.** The config file and the active theme file are checked about once a second. Edits apply immediately to every tab and the UI. A config with a syntax error is reported on stderr and ignored until it's fixed.
+
+### Wallpaper-generated themes (pywal, wallust, matugen, …)
+
+vtt doesn't know about any of these tools; it only reads files and escape sequences, so any of them can drive it:
+
+- **Via a file (recommended).** Point `theme_file` at a kitty-format file your tool already writes, or add a template to your tool that writes a vtt `.toml` file. vtt reloads whenever the file changes, and the colors are correct from startup.
+  ```toml
+  # e.g. end-4 dots-hyprland / illogical-impulse (matugen):
+  theme_file = "~/.local/state/quickshell/user/generated/terminal/kitty-theme.conf"
+  # e.g. pywal:
+  # theme_file = "~/.cache/wal/colors-kitty.conf"
+  ```
+- **Via escape sequences.** Many of these scripts recolor terminals by writing OSC 4/10/11 sequences to every open terminal. With `adopt_shell_palette = true`, vtt applies such colors to the whole app instead of only the tab that received them. Trade-offs:
+  - Any program that sets colors this way (some vim colorschemes, remote sessions) will also recolor the app.
+  - Colors adopted this way aren't saved, so after a restart you'll see the theme from your config until the next update.
+
+A matugen template for a vtt TOML theme (add it to `~/.config/matugen/config.toml` with an `output_path` in `~/.config/vtt/themes/`):
+
+```toml
+foreground = "{{colors.on_surface.default.hex}}"
+background = "{{colors.surface.default.hex}}"
+cursor = "{{colors.on_surface.default.hex}}"
+selection = "{{colors.secondary_container.default.hex}}"
+[ui]
+accent = "{{colors.primary.default.hex}}"
+sidebar = "{{colors.surface_container_low.default.hex}}"
+```
+
+This only sets the base and UI colors; the 16 ANSI colors stay from the default theme unless you add `colorN` lines too. Material You doesn't define ANSI colors, which is why wallpaper setups usually generate a separate terminal palette.
 
 ## License
 

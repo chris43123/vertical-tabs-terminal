@@ -17,6 +17,8 @@ use crate::procinfo;
 use crate::profiles::{self, Profile};
 use crate::render::{Fonts, Palette};
 use crate::session::{GridSize, Session, TabId};
+use crate::theme::{self, Patch, Theme, UiColors, mix};
+use crate::watch::Watcher;
 
 pub struct Tab {
     pub session: Session,
@@ -68,6 +70,13 @@ pub struct App {
 
     pub fonts: Fonts,
     pub palette: Palette,
+    /// Colors for the app chrome (sidebar, headers, palette), derived from the theme.
+    pub chrome: UiColors,
+    /// Theme from the config/theme file, before any adopted shell palette.
+    base_theme: Theme,
+    /// Colors adopted from shells via OSC (with `adopt_shell_palette`).
+    shell_patch: Patch,
+    watcher: Watcher,
     pub font_size: f32,
     pub keybinds: Keybinds,
 
@@ -102,8 +111,11 @@ impl App {
     pub fn new(cc: &eframe::CreationContext<'_>, config: Config) -> Self {
         let ctx = cc.egui_ctx.clone();
         ctx.options_mut(|o| o.zoom_with_keyboard = false);
-        let palette = Palette::from_config(&config.colors);
-        apply_style(&ctx, &palette);
+        let resolved = theme::resolve(&config);
+        let chrome = UiColors::from_theme(&resolved.theme);
+        let palette = Palette::from_theme(&resolved.theme);
+        apply_style(&ctx, &chrome);
+        let watcher = Watcher::spawn(watch_paths(resolved.file), ctx.clone());
 
         let font_size = config.font.size;
         let fonts = Fonts::new(
@@ -124,6 +136,10 @@ impl App {
             next_id: 1,
             fonts,
             palette,
+            chrome,
+            base_theme: resolved.theme,
+            shell_patch: Patch::default(),
+            watcher,
             font_size,
             keybinds,
             tx,
@@ -317,6 +333,7 @@ impl App {
         let visible = self.ws.visible();
         let focused = self.ws.focused();
         let mut exited = Vec::new();
+        let mut woke = Vec::new();
         while let Ok((id, event)) = self.rx.try_recv() {
             let Some(tab) = self.tabs.get_mut(&id) else {
                 continue;
@@ -325,6 +342,9 @@ impl App {
                 TermEvent::Wakeup => {
                     if !visible.contains(&id) {
                         tab.activity = true;
+                    }
+                    if !woke.contains(&id) {
+                        woke.push(id);
                     }
                 }
                 TermEvent::Bell => {
@@ -381,6 +401,103 @@ impl App {
                 self.close_tab(id);
             }
         }
+        if self.config.adopt_shell_palette {
+            self.adopt_shell_colors(&woke);
+        }
+    }
+
+    /// With `adopt_shell_palette`: if a shell set colors via OSC (e.g. a pywal/matugen script
+    /// writing escape sequences to every terminal), make them the app-wide theme. The tab's own
+    /// overrides are then cleared, so every tab and the chrome render from one palette.
+    fn adopt_shell_colors(&mut self, woke: &[TabId]) {
+        let mut adopted = false;
+        for id in woke {
+            let Some(tab) = self.tabs.get(id) else {
+                continue;
+            };
+            let patch = theme::patch_from_osc(tab.session.term.lock().colors());
+            if patch.is_empty() {
+                continue;
+            }
+            self.shell_patch.merge(patch);
+            adopted = true;
+        }
+        if adopted {
+            let mut theme = self.base_theme.clone();
+            theme.apply(&self.shell_patch);
+            self.set_theme(&theme);
+            self.reset_tab_colors();
+        }
+    }
+
+    fn set_theme(&mut self, theme: &Theme) {
+        self.palette = Palette::from_theme(theme);
+        self.chrome = UiColors::from_theme(theme);
+        apply_style(&self.ctx, &self.chrome);
+        self.ctx.request_repaint();
+    }
+
+    /// Clear per-tab OSC color overrides so tabs render from the app theme.
+    fn reset_tab_colors(&self) {
+        use alacritty_terminal::vte::ansi::Handler;
+        for tab in self.tabs.values() {
+            let mut term = tab.session.term.lock();
+            for i in 0..alacritty_terminal::term::color::COUNT {
+                term.reset_color(i);
+            }
+        }
+    }
+
+    /// Re-read the config (and theme) after a file changed. A broken config is reported and
+    /// ignored, so a half-saved edit doesn't wipe your settings.
+    fn reload_config(&mut self) {
+        let config = match Config::try_load() {
+            Ok(c) => c,
+            Err(err) => {
+                eprintln!("vtt: {err} (keeping previous config)");
+                return;
+            }
+        };
+        let old = std::mem::replace(&mut self.config, config);
+        let new = &self.config;
+
+        self.keybinds = Keybinds::new(&new.keybindings);
+        self.profiles = profiles::load(new);
+        if new.font.family != old.font.family {
+            self.fonts = Fonts::new(
+                &self.ctx,
+                new.font.family.as_deref(),
+                self.font_size,
+                self.ctx.pixels_per_point(),
+            );
+        }
+        if new.font.size != old.font.size {
+            self.font_size = new.font.size;
+        }
+        if new.sidebar_collapsed != old.sidebar_collapsed {
+            self.sidebar_collapsed = new.sidebar_collapsed;
+        }
+
+        let resolved = theme::resolve(&self.config);
+        self.watcher.set_paths(watch_paths(resolved.file));
+        // An explicit theme change wins over any previously adopted shell palette.
+        self.shell_patch = Patch::default();
+        if resolved.theme != self.base_theme {
+            self.base_theme = resolved.theme;
+            let theme = self.base_theme.clone();
+            self.set_theme(&theme);
+            self.reset_tab_colors();
+        }
+    }
+
+    /// Background a tab actually renders with (an OSC 11 override, else the theme's).
+    pub fn tab_background(&self, id: TabId) -> Color32 {
+        use alacritty_terminal::vte::ansi::NamedColor;
+        self.tabs
+            .get(&id)
+            .and_then(|t| t.session.term.lock().colors()[NamedColor::Background])
+            .map(|c| Color32::from_rgb(c.r, c.g, c.b))
+            .unwrap_or(self.palette.background())
     }
 
     /// Refresh auto titles about once a second while titles are visible.
@@ -705,6 +822,9 @@ impl eframe::App for App {
         }
         self.fonts
             .update(&ctx, self.font_size, ctx.pixels_per_point());
+        if self.watcher.changed() {
+            self.reload_config();
+        }
         self.process_events();
         self.handle_keyboard();
         self.poll_titles();
@@ -730,20 +850,25 @@ fn query_proc(session: &Session) -> procinfo::ProcInfo {
     procinfo::query(session.child_pid, fd)
 }
 
-fn apply_style(ctx: &egui::Context, palette: &Palette) {
-    let bg = palette.background();
-    let mut visuals = egui::Visuals::dark();
-    let sidebar_bg = shade(bg, 0.82);
-    visuals.panel_fill = sidebar_bg;
-    visuals.window_fill = shade(bg, 1.15);
-    visuals.extreme_bg_color = shade(bg, 0.7);
-    visuals.widgets.noninteractive.bg_stroke.color = shade(bg, 1.4);
-    visuals.selection.bg_fill = Color32::from_rgb(0x58, 0x5b, 0x70);
+fn apply_style(ctx: &egui::Context, c: &UiColors) {
+    let mut visuals = if c.light {
+        egui::Visuals::light()
+    } else {
+        egui::Visuals::dark()
+    };
+    visuals.panel_fill = c.sidebar;
+    visuals.window_fill = c.raised(0.06);
+    visuals.extreme_bg_color = c.recessed(0.25);
+    visuals.widgets.noninteractive.bg_stroke.color = c.raised(0.15);
+    visuals.widgets.noninteractive.fg_stroke.color = mix(c.fg, c.bg, 0.25);
+    visuals.widgets.inactive.fg_stroke.color = mix(c.fg, c.bg, 0.1);
+    visuals.override_text_color = None;
+    visuals.selection.bg_fill = mix(c.accent, c.bg, 0.55);
+    visuals.hyperlink_color = c.accent;
     ctx.set_visuals(visuals);
 }
 
-/// Scale a color's brightness.
-pub fn shade(c: Color32, f: f32) -> Color32 {
-    let s = |v: u8| ((v as f32 * f).round().clamp(0.0, 255.0)) as u8;
-    Color32::from_rgb(s(c.r()), s(c.g()), s(c.b()))
+/// Files whose changes trigger a live reload: the config, plus the active theme file.
+fn watch_paths(theme_file: Option<PathBuf>) -> Vec<PathBuf> {
+    Config::path().into_iter().chain(theme_file).collect()
 }

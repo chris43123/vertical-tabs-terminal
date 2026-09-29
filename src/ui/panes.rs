@@ -11,7 +11,7 @@ use eframe::egui::{
     Stroke, StrokeKind, Ui, pos2, vec2,
 };
 
-use crate::app::{App, TabDrag, shade};
+use crate::app::{App, TabDrag};
 use crate::input::{MouseButton, encode_mouse};
 use crate::layout::{Dir, Drop, Edge};
 use crate::render::{cell_at, grid_size_for, paint_terminal};
@@ -19,7 +19,6 @@ use crate::session::TabId;
 
 const HEADER_HEIGHT: f32 = 24.0;
 const PADDING: f32 = 4.0;
-const ACCENT: Color32 = Color32::from_rgb(0x89, 0xb4, 0xfa);
 
 enum PaneAction {
     Focus(TabId),
@@ -34,11 +33,11 @@ impl App {
             return;
         };
         let split = view.root.is_split();
-        let term_bg = self.palette.background();
+        // Split gaps recede; a single pane fills with its own (possibly OSC-overridden) background.
         let fill = if split {
-            shade(ui.visuals().panel_fill, 0.9)
+            self.chrome.recessed(0.3)
         } else {
-            term_bg
+            self.tab_background(view.focused)
         };
 
         egui::CentralPanel::default()
@@ -71,8 +70,11 @@ impl App {
                         self.ws.views[active].root.set_ratio(&s.path, ratio);
                     }
                     if resp.hovered() || resp.dragged() {
-                        ui.painter()
-                            .rect_filled(s.rect.shrink(1.0), CornerRadius::same(2), ACCENT);
+                        ui.painter().rect_filled(
+                            s.rect.shrink(1.0),
+                            CornerRadius::same(2),
+                            self.chrome.accent,
+                        );
                     }
                 }
 
@@ -104,7 +106,7 @@ impl App {
         focused: bool,
         actions: &mut Vec<PaneAction>,
     ) {
-        let term_bg = self.palette.background();
+        let term_bg = self.tab_background(id);
         let window_focused = ui.input(|i| i.focused);
 
         let mut body = rect;
@@ -180,12 +182,12 @@ impl App {
         let Some(tab) = self.tabs.get(&id) else {
             return;
         };
-        let base = self.palette.background();
+        let c = &self.chrome;
         let painter = ui.painter();
         let bg = if focused {
-            shade(base, 1.45)
+            c.raised(0.1)
         } else {
-            shade(base, 1.15)
+            c.raised(0.04)
         };
         painter.rect_filled(
             header,
@@ -201,7 +203,7 @@ impl App {
             painter.hline(
                 header.x_range().shrink(6.0),
                 header.top() + 1.0,
-                Stroke::new(2.0, ACCENT),
+                Stroke::new(2.0, self.chrome.accent),
             );
         }
 
@@ -257,11 +259,7 @@ impl App {
                 .interact(r, Id::new((glyph, id)), Sense::click())
                 .on_hover_text(tip);
             if b.hovered() {
-                let fill = if is_close {
-                    Color32::from_rgb(0xe6, 0x45, 0x53)
-                } else {
-                    shade(base, 2.4)
-                };
+                let fill = if is_close { c.danger } else { c.raised(0.26) };
                 painter.rect_filled(r, CornerRadius::same(4), fill);
             }
             painter.text(
@@ -315,12 +313,12 @@ impl App {
         painter.rect_filled(
             target.shrink(4.0),
             CornerRadius::same(8),
-            ACCENT.gamma_multiply(0.22),
+            self.chrome.accent.gamma_multiply(0.22),
         );
         painter.rect_stroke(
             target.shrink(4.0),
             CornerRadius::same(8),
-            Stroke::new(2.0, ACCENT),
+            Stroke::new(2.0, self.chrome.accent),
             StrokeKind::Inside,
         );
         let label = if drop == Drop::Center {
@@ -333,7 +331,7 @@ impl App {
             Align2::CENTER_CENTER,
             label,
             FontId::proportional(16.0),
-            Color32::WHITE,
+            self.chrome.fg,
         );
 
         if ui.ctx().input(|i| i.pointer.any_released()) {

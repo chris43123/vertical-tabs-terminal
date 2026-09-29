@@ -19,7 +19,15 @@ pub struct Config {
     pub default_profile: Option<String>,
     /// Extra user profiles, appended to the auto-discovered ones.
     pub profiles: Vec<ProfileConfig>,
-    pub colors: ColorConfig,
+    /// Built-in theme name, or a file `<config_dir>/vtt/themes/<name>.toml|.conf`.
+    pub theme: Option<String>,
+    /// Path to a theme file (vtt `.toml` or kitty format); takes precedence over `theme`.
+    pub theme_file: Option<PathBuf>,
+    /// Inline color overrides on top of the theme (same keys as a vtt theme file).
+    pub colors: toml::Table,
+    /// When a shell sets colors via OSC 4/10/11/12 (as pywal, wallust or matugen scripts do),
+    /// apply them to the whole app instead of just that tab.
+    pub adopt_shell_palette: bool,
     /// Shortcut overrides: action name -> chord or list of chords (see `keybinds.rs`).
     pub keybindings: HashMap<String, crate::keybinds::BindingConfig>,
 }
@@ -51,18 +59,6 @@ pub struct ProfileConfig {
     pub color: Option<String>,
 }
 
-/// Terminal palette. All values are "#rrggbb".
-#[derive(Debug, Clone, Deserialize)]
-#[serde(default)]
-pub struct ColorConfig {
-    pub foreground: String,
-    pub background: String,
-    pub cursor: String,
-    pub selection: String,
-    /// 16 ANSI colors: normal 0-7 then bright 8-15.
-    pub ansi: Vec<String>,
-}
-
 impl Default for Config {
     fn default() -> Self {
         Self {
@@ -72,7 +68,10 @@ impl Default for Config {
             sidebar_collapsed: false,
             default_profile: None,
             profiles: Vec::new(),
-            colors: ColorConfig::default(),
+            theme: None,
+            theme_file: None,
+            colors: toml::Table::new(),
+            adopt_shell_palette: false,
             keybindings: HashMap::new(),
         }
     }
@@ -87,23 +86,6 @@ impl Default for FontConfig {
     }
 }
 
-impl Default for ColorConfig {
-    // Catppuccin Mocha-ish.
-    fn default() -> Self {
-        let ansi = [
-            "#45475a", "#f38ba8", "#a6e3a1", "#f9e2af", "#89b4fa", "#f5c2e7", "#94e2d5", "#bac2de",
-            "#585b70", "#f38ba8", "#a6e3a1", "#f9e2af", "#89b4fa", "#f5c2e7", "#94e2d5", "#a6adc8",
-        ];
-        Self {
-            foreground: "#cdd6f4".into(),
-            background: "#1e1e2e".into(),
-            cursor: "#f5e0dc".into(),
-            selection: "#585b70".into(),
-            ansi: ansi.iter().map(|s| s.to_string()).collect(),
-        }
-    }
-}
-
 impl Config {
     pub fn path() -> Option<PathBuf> {
         dirs::config_dir().map(|d| d.join("vtt").join("config.toml"))
@@ -111,15 +93,22 @@ impl Config {
 
     /// Load the config file, falling back to defaults on any error (reported on stderr).
     pub fn load() -> Self {
+        Self::try_load().unwrap_or_else(|err| {
+            eprintln!("vtt: {err}");
+            Self::default()
+        })
+    }
+
+    /// Load the config file. A missing file gives the defaults; a broken one is an error
+    /// (so a live reload can keep the previous config while you're mid-edit).
+    pub fn try_load() -> Result<Self, String> {
         let Some(path) = Self::path() else {
-            return Self::default();
+            return Ok(Self::default());
         };
         match std::fs::read_to_string(&path) {
-            Ok(text) => toml::from_str(&text).unwrap_or_else(|err| {
-                eprintln!("vtt: invalid config {}: {err}", path.display());
-                Self::default()
-            }),
-            Err(_) => Self::default(),
+            Ok(text) => toml::from_str(&text)
+                .map_err(|err| format!("invalid config {}: {err}", path.display())),
+            Err(_) => Ok(Self::default()),
         }
     }
 }
@@ -169,6 +158,7 @@ mod tests {
         assert_eq!(cfg.scrollback, 500);
         assert_eq!(cfg.font.size, 12.0);
         assert_eq!(cfg.profiles[0].command, "htop");
-        assert_eq!(cfg.colors.ansi.len(), 16);
+        assert!(cfg.colors.is_empty());
+        assert!(!cfg.adopt_shell_palette);
     }
 }

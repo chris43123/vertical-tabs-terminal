@@ -6,11 +6,10 @@ use eframe::egui::{
     self, Color32, CornerRadius, FontId, Id, Key, Modifiers, Order, Sense, Stroke, vec2,
 };
 
-use crate::app::{App, shade};
+use crate::app::App;
 use crate::keybinds::{ACTIONS, Action};
 use crate::session::TabId;
 
-const ACCENT: Color32 = Color32::from_rgb(0x89, 0xb4, 0xfa);
 const ROW_HEIGHT: f32 = 28.0;
 
 #[derive(Default)]
@@ -109,7 +108,7 @@ impl App {
         let screen = ctx.content_rect();
         let width = (screen.width() - 32.0).min(560.0);
         let pos = egui::pos2(screen.center().x - width / 2.0, screen.top() + 48.0);
-        let base = self.palette.background();
+        let c = self.chrome.clone();
         let mut clicked = None;
         let mut query_changed = false;
 
@@ -118,8 +117,8 @@ impl App {
             .order(Order::Foreground)
             .show(ctx, |ui| {
                 egui::Frame::new()
-                    .fill(shade(base, 1.25))
-                    .stroke(Stroke::new(1.0, shade(base, 2.0)))
+                    .fill(c.raised(0.06))
+                    .stroke(Stroke::new(1.0, c.raised(0.2)))
                     .corner_radius(CornerRadius::same(10))
                     .inner_margin(8)
                     .shadow(egui::Shadow {
@@ -161,7 +160,7 @@ impl App {
                                         ui.painter().rect_filled(
                                             rect,
                                             CornerRadius::same(6),
-                                            shade(base, 1.9),
+                                            c.raised(0.16),
                                         );
                                         ui.painter().rect_filled(
                                             egui::Rect::from_min_size(
@@ -169,7 +168,7 @@ impl App {
                                                 vec2(3.0, rect.height() - 12.0),
                                             ),
                                             CornerRadius::same(2),
-                                            ACCENT,
+                                            c.accent,
                                         );
                                         if sw.scroll {
                                             resp.scroll_to_me(None);
@@ -178,18 +177,14 @@ impl App {
                                         ui.painter().rect_filled(
                                             rect,
                                             CornerRadius::same(6),
-                                            shade(base, 1.5),
+                                            c.raised(0.1),
                                         );
                                     }
                                     let visuals = ui.visuals();
                                     let (kind, kind_color) = match row.entry {
-                                        Entry::Tab(_) => ("tab", ACCENT),
-                                        Entry::Command(_) => {
-                                            ("cmd", Color32::from_rgb(0xcb, 0xa6, 0xf7))
-                                        }
-                                        Entry::Profile(_) => {
-                                            ("new", Color32::from_rgb(0xa6, 0xe3, 0xa1))
-                                        }
+                                        Entry::Tab(_) => ("tab", c.accent),
+                                        Entry::Command(_) => ("cmd", c.purple),
+                                        Entry::Profile(_) => ("new", c.green),
                                     };
                                     ui.painter().text(
                                         rect.left_center() + vec2(12.0, 0.0),
