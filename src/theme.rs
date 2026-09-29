@@ -193,7 +193,7 @@ pub fn resolve(config: &Config) -> Resolved {
         let path = expand_tilde(path);
         match load_file(&path) {
             Ok(patch) => theme.apply(&patch),
-            Err(err) => eprintln!("vtt: theme_file {}: {err}", path.display()),
+            Err(err) => crate::diag::warn(format!("theme_file {}: {err}", path.display())),
         }
         file = Some(path);
     } else if let Some(name) = &config.theme {
@@ -210,19 +210,19 @@ pub fn resolve(config: &Config) -> Resolved {
                 Some(path) => {
                     match load_file(&path) {
                         Ok(patch) => theme.apply(&patch),
-                        Err(err) => eprintln!("vtt: theme {}: {err}", path.display()),
+                        Err(err) => crate::diag::warn(format!("theme {}: {err}", path.display())),
                     }
                     file = Some(path);
                 }
                 None => {
                     let names: Vec<&str> = BUILTIN.iter().map(|(n, _)| *n).collect();
-                    eprintln!(
-                        "vtt: theme `{name}` not found (built-in: {}; or add {name}.toml / {name}.conf to {})",
+                    crate::diag::warn(format!(
+                        "theme `{name}` not found (built-in: {}; or add {name}.toml / {name}.conf to {})",
                         names.join(", "),
                         themes_dir()
                             .map(|d| d.display().to_string())
                             .unwrap_or_default()
-                    );
+                    ));
                 }
             }
         }
@@ -231,11 +231,11 @@ pub fn resolve(config: &Config) -> Resolved {
     match patch_from_table(&config.colors) {
         Ok((patch, warnings)) => {
             for w in warnings {
-                eprintln!("vtt: [colors]: {w}");
+                crate::diag::warn(format!("[colors]: {w}"));
             }
             theme.apply(&patch);
         }
-        Err(err) => eprintln!("vtt: [colors]: {err}"),
+        Err(err) => crate::diag::warn(format!("[colors]: {err}")),
     }
     Resolved { theme, file }
 }
@@ -255,7 +255,7 @@ pub fn load_file(path: &Path) -> Result<Patch, String> {
     if path.extension().is_some_and(|e| e == "toml") {
         let (patch, warnings) = parse_toml(&text)?;
         for w in warnings {
-            eprintln!("vtt: {}: {w}", path.display());
+            crate::diag::warn(format!("{}: {w}", path.display()));
         }
         Ok(patch)
     } else {

@@ -196,7 +196,9 @@ impl Fonts {
             .map(str::to_owned)
             .or_else(|| {
                 if let Some(f) = family {
-                    eprintln!("vtt: font family {f:?} not found, using a default monospace font");
+                    crate::diag::warn(format!(
+                        "font family {f:?} not found, using a default monospace font"
+                    ));
                 }
                 PREFERRED_MONO
                     .iter()

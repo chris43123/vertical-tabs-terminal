@@ -32,6 +32,7 @@ pub enum Action {
     /// Jump to the next tab with unread output or a bell.
     NextActivity,
     CommandPalette,
+    OpenSettings,
     FocusLeft,
     FocusRight,
     FocusUp,
@@ -81,6 +82,7 @@ pub const ACTIONS: &[(&str, &str, Action)] = &[
         "Switch tab / command palette",
         Action::CommandPalette,
     ),
+    ("open_settings", "Open settings file", Action::OpenSettings),
     ("focus_left", "Focus pane left", Action::FocusLeft),
     ("focus_right", "Focus pane right", Action::FocusRight),
     ("focus_up", "Focus pane above", Action::FocusUp),
@@ -276,14 +278,14 @@ impl Keybinds {
         let mut overridden = Vec::new();
         for (name, binding) in user {
             let Some(action) = Action::from_name(name) else {
-                eprintln!("vtt: unknown keybinding action `{name}`");
+                crate::diag::warn(format!("unknown keybinding action `{name}`"));
                 continue;
             };
             overridden.push(action);
             for s in binding.chords() {
                 match Chord::parse(s) {
                     Ok(chord) => user_bindings.push((chord, action)),
-                    Err(err) => eprintln!("vtt: keybinding `{name} = \"{s}\"`: {err}"),
+                    Err(err) => crate::diag::warn(format!("keybinding `{name} = \"{s}\"`: {err}")),
                 }
             }
         }
@@ -354,6 +356,7 @@ fn default_specs(macos: bool) -> Vec<(String, Action)> {
             ("cmd+shift+a", NextActivity),
             ("cmd+p", CommandPalette),
             ("cmd+shift+p", CommandPalette),
+            ("cmd+comma", OpenSettings),
             ("cmd+alt+left", FocusLeft),
             ("cmd+alt+right", FocusRight),
             ("cmd+alt+up", FocusUp),
@@ -385,6 +388,7 @@ fn default_specs(macos: bool) -> Vec<(String, Action)> {
             ("ctrl+shift+t", NewTab),
             ("ctrl+shift+w", CloseTab),
             ("ctrl+shift+p", CommandPalette),
+            ("alt+comma", OpenSettings),
             ("alt+left", FocusLeft),
             ("alt+right", FocusRight),
             ("ctrl+alt+up", FocusUp),

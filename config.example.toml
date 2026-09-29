@@ -28,6 +28,10 @@ sidebar_collapsed = false
 # this for every open terminal), apply them to the whole app instead of just that tab.
 adopt_shell_palette = false
 
+# Editor for "Open settings" (Alt+,). Defaults to $VISUAL / $EDITOR, then the system's default app.
+# Terminal editors open in a new vtt tab.
+# editor = "nvim"
+
 [font]
 # Font family; defaults to the system monospace font.
 # family = "JetBrains Mono"
@@ -51,12 +55,12 @@ size = 14.0
 
 # Extra profiles, added after the auto-discovered shells.
 # A profile with the same name as a discovered one replaces it.
-[[profiles]]
-name = "htop"
-command = "htop"
-args = []
+# [[profiles]]
+# name = "htop"
+# command = "htop"
+# args = []
 # cwd = "/home/me/projects"
-icon = "H"
-color = "#a6e3a1"
-[profiles.env]
+# icon = "H"
+# color = "#a6e3a1"
+# [profiles.env]
 # FOO = "bar"

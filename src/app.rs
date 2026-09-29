@@ -105,6 +105,9 @@ pub struct App {
     clipboard: Option<arboard::Clipboard>,
     last_poll: Instant,
     window_title: String,
+    /// Config/theme problems shown in the banner until fixed or dismissed.
+    pub problems: Vec<String>,
+    pub problems_dismissed: bool,
 }
 
 impl App {
@@ -157,6 +160,8 @@ impl App {
             clipboard: arboard::Clipboard::new().ok(),
             last_poll: Instant::now() - Duration::from_secs(10),
             window_title: String::new(),
+            problems: Vec::new(),
+            problems_dismissed: false,
         };
         app.new_tab(0, None);
         app
@@ -209,7 +214,7 @@ impl App {
         ) {
             Ok(s) => s,
             Err(err) => {
-                eprintln!("vtt: failed to start {}: {err}", profile.command);
+                crate::diag::warn(format!("failed to start {}: {err}", profile.command));
                 return None;
             }
         };
@@ -451,10 +456,13 @@ impl App {
     /// Re-read the config (and theme) after a file changed. A broken config is reported and
     /// ignored, so a half-saved edit doesn't wipe your settings.
     fn reload_config(&mut self) {
+        // Everything gets re-evaluated; problems that still exist are reported again.
+        self.problems.clear();
+        self.problems_dismissed = false;
         let config = match Config::try_load() {
             Ok(c) => c,
             Err(err) => {
-                eprintln!("vtt: {err} (keeping previous config)");
+                crate::diag::warn(format!("{err} (keeping previous config)"));
                 return;
             }
         };
@@ -487,6 +495,48 @@ impl App {
             let theme = self.base_theme.clone();
             self.set_theme(&theme);
             self.reset_tab_colors();
+        }
+    }
+
+    /// Create the config if needed and open it: in a new tab when an editor is configured,
+    /// otherwise with the system's default app. Saving applies changes live.
+    pub fn open_settings(&mut self) {
+        let path = match crate::settings::ensure_config() {
+            Ok(p) => p,
+            Err(err) => return crate::diag::warn(err),
+        };
+        let Some(mut cmd) = crate::settings::editor(&self.config) else {
+            if let Err(err) = crate::settings::open_external(&path) {
+                crate::diag::warn(err);
+            }
+            return;
+        };
+        let program = cmd.remove(0);
+        cmd.push(path.to_string_lossy().into_owned());
+        let profile = Profile {
+            name: "settings".into(),
+            command: program,
+            args: cmd,
+            cwd: None,
+            env: HashMap::new(),
+            icon: "⚙".into(),
+            color: None,
+        };
+        let cwd = path.parent().map(PathBuf::from);
+        if let Some(id) = self.spawn_tab(profile, cwd, None)
+            && let Some(tab) = self.tabs.get_mut(&id)
+        {
+            tab.custom_title = Some("Settings".into());
+        }
+    }
+
+    /// Pull newly reported problems into the banner (deduplicated).
+    fn collect_problems(&mut self) {
+        for p in crate::diag::take() {
+            if !self.problems.contains(&p) {
+                self.problems.push(p);
+                self.problems_dismissed = false;
+            }
         }
     }
 
@@ -614,6 +664,7 @@ impl App {
             }
             Action::NextActivity => self.next_activity(),
             Action::CommandPalette => self.switcher = Some(crate::ui::Switcher::default()),
+            Action::OpenSettings => self.open_settings(),
             Action::FocusLeft | Action::FocusRight | Action::FocusUp | Action::FocusDown => {
                 let dir = match action {
                     Action::FocusLeft => egui::vec2(-1.0, 0.0),
@@ -825,6 +876,7 @@ impl eframe::App for App {
         if self.watcher.changed() {
             self.reload_config();
         }
+        self.collect_problems();
         self.process_events();
         self.handle_keyboard();
         self.poll_titles();
@@ -837,6 +889,7 @@ impl eframe::App for App {
         self.sidebar(ui);
         self.panes(ui);
         self.switcher_ui(&ctx);
+        self.problems_banner(&ctx);
         self.track_focus();
         self.update_window_title();
     }

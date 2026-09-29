@@ -2,6 +2,7 @@
 
 mod app;
 mod config;
+mod diag;
 mod input;
 mod keybinds;
 mod layout;
@@ -9,6 +10,7 @@ mod procinfo;
 mod profiles;
 mod render;
 mod session;
+mod settings;
 mod theme;
 mod ui;
 mod watch;

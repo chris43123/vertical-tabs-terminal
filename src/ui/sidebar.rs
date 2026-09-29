@@ -26,6 +26,7 @@ enum Action {
     ToggleCollapse,
     Reorder(TabId, usize),
     Move(TabId, bool),
+    OpenSettings,
 }
 
 impl App {
@@ -114,7 +115,11 @@ impl App {
     fn sidebar_contents(&mut self, ui: &mut Ui, expanded: bool, actions: &mut Vec<Action>) {
         ui.spacing_mut().item_spacing = vec2(4.0, 2.0);
 
-        // Header: new tab, profile menu, collapse toggle.
+        // Header: new tab, profile menu, then settings and the collapse toggle on the right.
+        let settings_tip = format!(
+            "Open settings{}",
+            self.keybinds.hint(Shortcut::OpenSettings)
+        );
         let new_tab_tip = format!("New tab{}", self.keybinds.hint(Shortcut::NewTab));
         let sidebar_hint = self.keybinds.hint(Shortcut::ToggleSidebar);
         let header = |ui: &mut Ui, actions: &mut Vec<Action>| {
@@ -143,6 +148,9 @@ impl App {
                     };
                     if ui.button(label).on_hover_text(tip).clicked() {
                         actions.push(Action::ToggleCollapse);
+                    }
+                    if ui.button(" ⚙ ").on_hover_text(&settings_tip).clicked() {
+                        actions.push(Action::OpenSettings);
                     }
                 });
             });
@@ -470,6 +478,7 @@ impl App {
             Action::Duplicate(id) => self.duplicate_tab(id),
             Action::Minimize(id) => self.ws.minimize(id),
             Action::StartRename(id) => self.start_rename(id),
+            Action::OpenSettings => self.open_settings(),
             Action::Move(id, down) => {
                 self.ws.move_tab(id, down);
             }

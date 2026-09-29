@@ -57,6 +57,7 @@ vtt is built to be driven from the keyboard. On Linux and Windows the app shortc
 |---|---|---|
 | Font zoom in / out / reset | `Ctrl+=` / `Ctrl+-` / `Ctrl+0` | `⌘=` / `⌘-` / `⌘0` |
 | Scroll back | `Shift+PageUp` / `Shift+PageDown` | same |
+| Open settings file | `Alt+,` | `⌘,` |
 | Copy / paste | `Ctrl+Shift+C` / `Ctrl+Shift+V`, plus `Ctrl+V` | `⌘C` / `⌘V` |
 
 `Ctrl+C` copies when text is selected; otherwise it sends an interrupt as usual. Pane-focus and next/previous-tab keys pass through to the shell when there is nothing to move to (a single tab, or no pane in that direction).
@@ -93,6 +94,13 @@ Config file location:
 - macOS: `~/Library/Application Support/vtt/config.toml`
 - Windows: `%APPDATA%\vtt\config.toml`
 
+The easiest way in is **Open settings**: press `Alt+,` (`⌘,` on macOS), click ⚙ in the sidebar header, or pick it from the palette.
+- If the file doesn't exist yet, it's created from the commented example below.
+- It opens in a new tab running your editor (the `editor` setting, `$VISUAL` or `$EDITOR`), and the tab closes when you quit the editor.
+- Without an editor configured, it opens in your system's default text editor.
+
+Changes apply as soon as you save; there's no need to restart. If something in the file is wrong (a syntax error, an unknown theme, a bad shortcut), a banner in the bottom-right corner says what and where. It disappears once the file is fixed. While the config has a syntax error, vtt keeps your previous settings.
+
 Every key is optional. The example below shows the defaults. It is also available as [`config.example.toml`](config.example.toml).
 
 ```toml
@@ -126,6 +134,10 @@ sidebar_collapsed = false
 # this for every open terminal), apply them to the whole app instead of just that tab.
 adopt_shell_palette = false
 
+# Editor for "Open settings" (Alt+,). Defaults to $VISUAL / $EDITOR, then the system's default app.
+# Terminal editors open in a new vtt tab.
+# editor = "nvim"
+
 [font]
 # Font family; defaults to the system monospace font.
 # family = "JetBrains Mono"
@@ -149,14 +161,14 @@ size = 14.0
 
 # Extra profiles, added after the auto-discovered shells.
 # A profile with the same name as a discovered one replaces it.
-[[profiles]]
-name = "htop"
-command = "htop"
-args = []
+# [[profiles]]
+# name = "htop"
+# command = "htop"
+# args = []
 # cwd = "/home/me/projects"
-icon = "H"
-color = "#a6e3a1"
-[profiles.env]
+# icon = "H"
+# color = "#a6e3a1"
+# [profiles.env]
 # FOO = "bar"
 ```
 

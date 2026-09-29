@@ -28,6 +28,8 @@ pub struct Config {
     /// When a shell sets colors via OSC 4/10/11/12 (as pywal, wallust or matugen scripts do),
     /// apply them to the whole app instead of just that tab.
     pub adopt_shell_palette: bool,
+    /// Command used by "Open settings" (falls back to $VISUAL, $EDITOR, then the OS default app).
+    pub editor: Option<String>,
     /// Shortcut overrides: action name -> chord or list of chords (see `keybinds.rs`).
     pub keybindings: HashMap<String, crate::keybinds::BindingConfig>,
 }
@@ -72,6 +74,7 @@ impl Default for Config {
             theme_file: None,
             colors: toml::Table::new(),
             adopt_shell_palette: false,
+            editor: None,
             keybindings: HashMap::new(),
         }
     }
@@ -94,7 +97,7 @@ impl Config {
     /// Load the config file, falling back to defaults on any error (reported on stderr).
     pub fn load() -> Self {
         Self::try_load().unwrap_or_else(|err| {
-            eprintln!("vtt: {err}");
+            crate::diag::warn(err);
             Self::default()
         })
     }
@@ -139,7 +142,7 @@ mod tests {
         let cfg: Config = toml::from_str(include_str!("../config.example.toml")).unwrap();
         assert_eq!(cfg.scrollback, 10_000);
         assert!(cfg.keybindings.is_empty());
-        assert_eq!(cfg.profiles[0].name, "htop");
+        assert!(cfg.profiles.is_empty());
     }
 
     #[test]
