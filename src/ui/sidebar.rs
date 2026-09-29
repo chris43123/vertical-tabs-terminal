@@ -148,16 +148,12 @@ impl App {
                 });
             });
         } else {
-            ui.vertical_centered(|ui| {
-                header(ui, actions);
-                if ui
-                    .button(" » ")
-                    .on_hover_text(format!("Expand sidebar{sidebar_hint}"))
-                    .clicked()
-                {
-                    actions.push(Action::ToggleCollapse);
-                }
-            });
+            // The collapsed strip shows only tab icons; its header buttons live in the hover
+            // peek. Reserve the header's height so icons line up with the peek's rows.
+            ui.allocate_exact_size(
+                vec2(ui.available_width(), ui.spacing().interact_size.y),
+                Sense::hover(),
+            );
         }
         ui.add_space(4.0);
         ui.separator();
