@@ -13,13 +13,25 @@ use serde::Deserialize;
 pub enum Action {
     NewTab,
     CloseTab,
+    ReopenClosedTab,
+    DuplicateTab,
+    RenameTab,
     SplitRight,
     SplitDown,
+    /// Pull the focused pane out of its split into its own tab.
+    MinimizePane,
     ToggleSidebar,
     NextTab,
     PrevTab,
+    /// Move the focused tab (or its whole split group) one step up/down the sidebar.
+    MoveTabUp,
+    MoveTabDown,
     /// Jump to the Nth tab in the sidebar (1-based).
     GotoTab(u8),
+    LastTab,
+    /// Jump to the next tab with unread output or a bell.
+    NextActivity,
+    CommandPalette,
     FocusLeft,
     FocusRight,
     FocusUp,
@@ -31,30 +43,66 @@ pub enum Action {
     ScrollPageDown,
 }
 
+/// Config name and human label of every action (except `GotoTab`, which is numbered).
+pub const ACTIONS: &[(&str, &str, Action)] = &[
+    ("new_tab", "New tab", Action::NewTab),
+    ("close_tab", "Close tab", Action::CloseTab),
+    (
+        "reopen_closed_tab",
+        "Reopen closed tab",
+        Action::ReopenClosedTab,
+    ),
+    ("duplicate_tab", "Duplicate tab", Action::DuplicateTab),
+    ("rename_tab", "Rename tab", Action::RenameTab),
+    (
+        "split_right",
+        "Split right with new tab",
+        Action::SplitRight,
+    ),
+    ("split_down", "Split down with new tab", Action::SplitDown),
+    (
+        "minimize_pane",
+        "Minimise pane to its own tab",
+        Action::MinimizePane,
+    ),
+    ("toggle_sidebar", "Toggle sidebar", Action::ToggleSidebar),
+    ("next_tab", "Next tab", Action::NextTab),
+    ("prev_tab", "Previous tab", Action::PrevTab),
+    ("move_tab_up", "Move tab up", Action::MoveTabUp),
+    ("move_tab_down", "Move tab down", Action::MoveTabDown),
+    ("last_tab", "Go to last tab", Action::LastTab),
+    (
+        "next_activity",
+        "Go to next tab with new output",
+        Action::NextActivity,
+    ),
+    (
+        "command_palette",
+        "Switch tab / command palette",
+        Action::CommandPalette,
+    ),
+    ("focus_left", "Focus pane left", Action::FocusLeft),
+    ("focus_right", "Focus pane right", Action::FocusRight),
+    ("focus_up", "Focus pane above", Action::FocusUp),
+    ("focus_down", "Focus pane below", Action::FocusDown),
+    ("zoom_in", "Zoom in", Action::ZoomIn),
+    ("zoom_out", "Zoom out", Action::ZoomOut),
+    ("zoom_reset", "Reset zoom", Action::ZoomReset),
+    ("scroll_page_up", "Scroll up one page", Action::ScrollPageUp),
+    (
+        "scroll_page_down",
+        "Scroll down one page",
+        Action::ScrollPageDown,
+    ),
+];
+
 impl Action {
     fn from_name(name: &str) -> Option<Self> {
-        Some(match name {
-            "new_tab" => Self::NewTab,
-            "close_tab" => Self::CloseTab,
-            "split_right" => Self::SplitRight,
-            "split_down" => Self::SplitDown,
-            "toggle_sidebar" => Self::ToggleSidebar,
-            "next_tab" => Self::NextTab,
-            "prev_tab" => Self::PrevTab,
-            "focus_left" => Self::FocusLeft,
-            "focus_right" => Self::FocusRight,
-            "focus_up" => Self::FocusUp,
-            "focus_down" => Self::FocusDown,
-            "zoom_in" => Self::ZoomIn,
-            "zoom_out" => Self::ZoomOut,
-            "zoom_reset" => Self::ZoomReset,
-            "scroll_page_up" => Self::ScrollPageUp,
-            "scroll_page_down" => Self::ScrollPageDown,
-            _ => {
-                let n: u8 = name.strip_prefix("goto_tab_")?.parse().ok()?;
-                return (1..=9).contains(&n).then_some(Self::GotoTab(n));
-            }
-        })
+        if let Some(&(_, _, a)) = ACTIONS.iter().find(|(n, _, _)| *n == name) {
+            return Some(a);
+        }
+        let n: u8 = name.strip_prefix("goto_tab_")?.parse().ok()?;
+        (1..=9).contains(&n).then_some(Self::GotoTab(n))
     }
 }
 
@@ -71,6 +119,11 @@ pub struct Chord {
 
 impl Chord {
     pub fn parse(s: &str) -> Result<Self, String> {
+        Self::parse_for(s, cfg!(target_os = "macos"))
+    }
+
+    /// Parse as if running on macOS (`cmd` allowed) or not.
+    fn parse_for(s: &str, macos: bool) -> Result<Self, String> {
         let s = s.trim().to_ascii_lowercase();
         // Allow "ctrl++" by treating a trailing '+' as the key.
         let (mods, key) = match s.strip_suffix("++") {
@@ -90,7 +143,7 @@ impl Chord {
                 "shift" => chord.shift = true,
                 "alt" | "option" | "opt" => chord.alt = true,
                 "cmd" | "command" | "super" => {
-                    if !cfg!(target_os = "macos") {
+                    if !macos {
                         return Err("`cmd` is only available on macOS".into());
                     }
                     chord.cmd = true;
@@ -254,27 +307,53 @@ impl Keybinds {
         find(key).or_else(|| physical.filter(|p| *p != key).and_then(find))
     }
 
-    /// First chord bound to `action`, formatted for a tooltip, e.g. " (Alt+T)".
-    pub fn hint(&self, action: Action) -> String {
+    /// First chord bound to `action`, e.g. "Alt+T".
+    pub fn label(&self, action: Action) -> Option<String> {
         self.bindings
             .iter()
             .find(|(_, a)| *a == action)
-            .map(|(c, _)| format!(" ({})", c.label()))
+            .map(|(c, _)| c.label())
+    }
+
+    /// Like [`Self::label`], formatted for a tooltip, e.g. " (Alt+T)".
+    pub fn hint(&self, action: Action) -> String {
+        self.label(action)
+            .map(|l| format!(" ({l})"))
             .unwrap_or_default()
     }
 }
 
 fn defaults() -> Vec<(Chord, Action)> {
+    let macos = cfg!(target_os = "macos");
+    default_specs(macos)
+        .into_iter()
+        .map(|(s, a)| (Chord::parse_for(&s, macos).expect("valid default chord"), a))
+        .collect()
+}
+
+/// Default chords as strings, for macOS or Linux/Windows.
+fn default_specs(macos: bool) -> Vec<(String, Action)> {
     use Action::*;
-    let mut list: Vec<(&str, Action)> = if cfg!(target_os = "macos") {
+    let mut list: Vec<(&str, Action)> = if macos {
         vec![
             ("cmd+t", NewTab),
             ("cmd+w", CloseTab),
+            ("cmd+shift+t", ReopenClosedTab),
+            ("cmd+r", RenameTab),
             ("cmd+d", SplitRight),
             ("cmd+shift+d", SplitDown),
+            ("cmd+shift+m", MinimizePane), // Cmd+M minimises the window on macOS.
             ("cmd+b", ToggleSidebar),
+            ("cmd+down", NextTab),
+            ("cmd+up", PrevTab),
             ("cmd+shift+]", NextTab),
             ("cmd+shift+[", PrevTab),
+            ("cmd+shift+down", MoveTabDown),
+            ("cmd+shift+up", MoveTabUp),
+            ("cmd+9", LastTab),
+            ("cmd+shift+a", NextActivity),
+            ("cmd+p", CommandPalette),
+            ("cmd+shift+p", CommandPalette),
             ("cmd+alt+left", FocusLeft),
             ("cmd+alt+right", FocusRight),
             ("cmd+alt+up", FocusUp),
@@ -289,16 +368,27 @@ fn defaults() -> Vec<(Chord, Action)> {
         vec![
             ("alt+t", NewTab),
             ("alt+w", CloseTab),
+            ("alt+shift+t", ReopenClosedTab),
+            ("alt+r", RenameTab),
             ("alt+shift+d", SplitRight),
             ("alt+shift+e", SplitDown),
+            ("alt+m", MinimizePane),
             ("alt+shift+b", ToggleSidebar),
+            ("alt+down", NextTab),
+            ("alt+up", PrevTab),
+            ("alt+shift+down", MoveTabDown),
+            ("alt+shift+up", MoveTabUp),
+            ("alt+9", LastTab),
+            ("alt+a", NextActivity),
+            ("alt+p", CommandPalette),
             // Common terminal shortcuts, kept as alternates since they clash with nothing.
             ("ctrl+shift+t", NewTab),
             ("ctrl+shift+w", CloseTab),
+            ("ctrl+shift+p", CommandPalette),
             ("alt+left", FocusLeft),
             ("alt+right", FocusRight),
-            ("alt+up", FocusUp),
-            ("alt+down", FocusDown),
+            ("ctrl+alt+up", FocusUp),
+            ("ctrl+alt+down", FocusDown),
             ("ctrl+equals", ZoomIn),
             ("ctrl+plus", ZoomIn),
             ("ctrl+shift+plus", ZoomIn),
@@ -314,19 +404,11 @@ fn defaults() -> Vec<(Chord, Action)> {
         ("shift+pageup", ScrollPageUp),
         ("shift+pagedown", ScrollPageDown),
     ]);
-    let goto_mod = if cfg!(target_os = "macos") {
-        "cmd"
-    } else {
-        "alt"
-    };
-    let goto: Vec<(String, Action)> = (1..=9)
-        .map(|n| (format!("{goto_mod}+{n}"), GotoTab(n)))
-        .collect();
-
+    // 1-8 jump to that tab; 9 is the last tab (like browsers).
+    let goto_mod = if macos { "cmd" } else { "alt" };
     list.iter()
         .map(|(s, a)| (s.to_string(), *a))
-        .chain(goto)
-        .map(|(s, a)| (Chord::parse(&s).expect("valid default chord"), a))
+        .chain((1..=8).map(|n| (format!("{goto_mod}+{n}"), GotoTab(n))))
         .collect()
 }
 
@@ -366,6 +448,25 @@ mod tests {
     }
 
     #[test]
+    fn default_tables_parse_on_every_os() {
+        for macos in [false, true] {
+            let specs = default_specs(macos);
+            for (s, _) in &specs {
+                assert!(Chord::parse_for(s, macos).is_ok(), "macos={macos}: {s}");
+            }
+            // No chord is bound to two different actions.
+            for (i, (a, x)) in specs.iter().enumerate() {
+                for (b, y) in &specs[i + 1..] {
+                    assert!(
+                        Chord::parse_for(a, macos) != Chord::parse_for(b, macos) || x == y,
+                        "macos={macos}: {a} bound to {x:?} and {y:?}"
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
     fn parses_chords() {
         let c = Chord::parse("Alt+Shift+D").unwrap();
         assert_eq!((c.key, c.alt, c.shift, c.ctrl), (Key::D, true, true, false));
@@ -380,17 +481,10 @@ mod tests {
 
     #[test]
     fn every_action_name_round_trips() {
-        for name in [
-            "new_tab",
-            "close_tab",
-            "split_right",
-            "split_down",
-            "toggle_sidebar",
-            "goto_tab_9",
-            "zoom_reset",
-        ] {
-            assert!(Action::from_name(name).is_some(), "{name}");
+        for &(name, _, action) in ACTIONS {
+            assert_eq!(Action::from_name(name), Some(action), "{name}");
         }
+        assert_eq!(Action::from_name("goto_tab_9"), Some(Action::GotoTab(9)));
         assert!(Action::from_name("goto_tab_0").is_none());
         assert!(Action::from_name("goto_tab_10").is_none());
     }
@@ -410,6 +504,18 @@ mod tests {
         assert_eq!(
             kb.lookup_l(Key::Num3, mods(false, false, true)),
             Some(Action::GotoTab(3))
+        );
+        assert_eq!(
+            kb.lookup_l(Key::Num9, mods(false, false, true)),
+            Some(Action::LastTab)
+        );
+        assert_eq!(
+            kb.lookup_l(Key::ArrowDown, mods(false, false, true)),
+            Some(Action::NextTab)
+        );
+        assert_eq!(
+            kb.lookup_l(Key::ArrowUp, mods(false, true, true)),
+            Some(Action::MoveTabUp)
         );
         // Alt+D / Alt+B stay with the shell (delete word / back word).
         assert_eq!(kb.lookup_l(Key::D, mods(false, false, true)), None);

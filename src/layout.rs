@@ -386,6 +386,52 @@ impl Workspace {
         self.normalize_order();
     }
 
+    /// Move a tab (with its whole split group) one step up or down, past the neighbouring
+    /// tab or group. Returns false at either end of the list.
+    pub fn move_tab(&mut self, id: TabId, down: bool) -> bool {
+        let Some(vi) = self.view_of(id) else {
+            return false;
+        };
+        let members = self.views[vi].root.leaves();
+        let positions: Vec<usize> = self
+            .order
+            .iter()
+            .enumerate()
+            .filter(|(_, t)| members.contains(t))
+            .map(|(i, _)| i)
+            .collect();
+        let (Some(&first), Some(&last)) = (positions.first(), positions.last()) else {
+            return false;
+        };
+
+        let neighbour = if down {
+            self.order.get(last + 1)
+        } else {
+            first.checked_sub(1).and_then(|i| self.order.get(i))
+        };
+        let Some(&neighbour) = neighbour else {
+            return false;
+        };
+        let group = self
+            .view_of(neighbour)
+            .map(|v| self.views[v].root.leaves())
+            .unwrap_or_else(|| vec![neighbour]);
+        let group_pos: Vec<usize> = self
+            .order
+            .iter()
+            .enumerate()
+            .filter(|(_, t)| group.contains(t))
+            .map(|(i, _)| i)
+            .collect();
+        let to = if down {
+            group_pos.last().unwrap() + 1
+        } else {
+            group_pos[0]
+        };
+        self.reorder(id, to);
+        true
+    }
+
     /// Keep each view's tabs contiguous in the sidebar, anchored at the first member's position.
     fn normalize_order(&mut self) {
         let mut out = Vec::with_capacity(self.order.len());
@@ -518,5 +564,21 @@ mod tests {
         w.cycle(false);
         w.cycle(false);
         assert_eq!(w.focused(), Some(2));
+    }
+
+    #[test]
+    fn move_tab_steps_over_groups() {
+        let mut w = ws(4);
+        w.activate(2);
+        w.drop_on(3, 2, Drop::Edge(Edge::Right)); // order: 1 [2 3] 4
+        assert_eq!(w.order, vec![1, 2, 3, 4]);
+        assert!(w.move_tab(1, true)); // 1 jumps over the whole group
+        assert_eq!(w.order, vec![2, 3, 1, 4]);
+        assert!(w.move_tab(3, true)); // moving a member moves the group
+        assert_eq!(w.order, vec![1, 2, 3, 4]);
+        assert!(w.move_tab(4, false));
+        assert_eq!(w.order, vec![1, 4, 2, 3]);
+        assert!(!w.move_tab(1, false));
+        assert!(!w.move_tab(2, true));
     }
 }

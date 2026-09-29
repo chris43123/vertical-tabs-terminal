@@ -1,6 +1,7 @@
 //! Application state: tabs, their sessions, the split workspace and event routing.
 
 use std::collections::HashMap;
+use std::path::PathBuf;
 use std::sync::mpsc::{Receiver, Sender, channel};
 use std::time::{Duration, Instant};
 
@@ -31,7 +32,7 @@ pub struct Tab {
     /// Bell rang while the tab wasn't focused.
     pub bell: bool,
     /// Last cwd seen, used to start new tabs in the same directory.
-    pub cwd: Option<std::path::PathBuf>,
+    pub cwd: Option<PathBuf>,
 }
 
 impl Tab {
@@ -43,6 +44,16 @@ impl Tab {
             .unwrap_or(&self.profile.name)
     }
 }
+
+/// Enough of a closed tab to reopen it.
+struct ClosedTab {
+    profile: Profile,
+    cwd: Option<PathBuf>,
+    custom_title: Option<String>,
+    index: usize,
+}
+
+const MAX_CLOSED: usize = 20;
 
 /// Payload for dragging a tab out of the sidebar.
 #[derive(Clone, Copy, Debug)]
@@ -73,6 +84,14 @@ pub struct App {
     pub pane_rects: Vec<(TabId, egui::Rect)>,
     /// Sub-line scroll accumulator in points.
     pub scroll_accum: f32,
+    /// Scroll the sidebar so the focused tab is visible (after keyboard navigation).
+    pub scroll_to_focused: bool,
+    /// The tab switcher / command palette, when open.
+    pub switcher: Option<crate::ui::Switcher>,
+    closed: Vec<ClosedTab>,
+    /// Focused tab as of the last frame, and the one before it.
+    last_focused: Option<TabId>,
+    pub prev_focused: Option<TabId>,
 
     clipboard: Option<arboard::Clipboard>,
     last_poll: Instant,
@@ -114,6 +133,11 @@ impl App {
             renaming: None,
             pane_rects: Vec::new(),
             scroll_accum: 0.0,
+            scroll_to_focused: false,
+            switcher: None,
+            closed: Vec::new(),
+            last_focused: None,
+            prev_focused: None,
             clipboard: arboard::Clipboard::new().ok(),
             last_poll: Instant::now() - Duration::from_secs(10),
             window_title: String::new(),
@@ -122,7 +146,7 @@ impl App {
         app
     }
 
-    /// Spawn a session for profile `profile_idx`. Returns the new tab's id.
+    /// Open a tab with profile `profile_idx` in the focused tab's directory. Returns its id.
     /// `split`: split the focused pane of the active view on that edge instead of opening a standalone tab.
     pub fn new_tab(&mut self, profile_idx: usize, split: Option<Edge>) -> Option<TabId> {
         let profile = self
@@ -130,15 +154,27 @@ impl App {
             .get(profile_idx)
             .or(self.profiles.first())?
             .clone();
+        // Start in the focused tab's directory, like most terminals do.
+        let cwd = self
+            .ws
+            .focused()
+            .and_then(|f| self.tabs.get_mut(&f))
+            .and_then(|t| {
+                t.cwd = query_proc(&t.session).cwd.or(t.cwd.take());
+                t.cwd.clone()
+            });
+        self.spawn_tab(profile, cwd, split)
+    }
+
+    fn spawn_tab(
+        &mut self,
+        profile: Profile,
+        cwd: Option<PathBuf>,
+        split: Option<Edge>,
+    ) -> Option<TabId> {
         let id = self.next_id;
         self.next_id += 1;
-
         let focused = self.ws.focused();
-        // Start in the focused tab's directory, like most terminals do.
-        let cwd = focused.and_then(|f| self.tabs.get_mut(&f)).and_then(|t| {
-            t.cwd = query_proc(&t.session).cwd.or(t.cwd.take());
-            t.cwd.clone()
-        });
 
         // Real size is applied on the first layout pass.
         let size = GridSize {
@@ -178,14 +214,41 @@ impl App {
         if let (Some(edge), Some(target)) = (split, focused) {
             self.ws.drop_on(id, target, Drop::Edge(edge));
         }
+        self.scroll_to_focused = true;
         Some(id)
     }
 
     pub fn close_tab(&mut self, id: TabId) {
+        if let Some(tab) = self.tabs.get(&id) {
+            self.closed.push(ClosedTab {
+                profile: tab.profile.clone(),
+                cwd: query_proc(&tab.session).cwd.or(tab.cwd.clone()),
+                custom_title: tab.custom_title.clone(),
+                index: self.ws.order.iter().position(|t| *t == id).unwrap_or(0),
+            });
+            if self.closed.len() > MAX_CLOSED {
+                self.closed.remove(0);
+            }
+        }
         self.ws.close(id);
         self.tabs.remove(&id);
         if self.renaming.as_ref().is_some_and(|(r, _)| *r == id) {
             self.renaming = None;
+        }
+        self.scroll_to_focused = true;
+    }
+
+    /// Reopen the most recently closed tab: same profile, directory, name and sidebar position.
+    /// (The old process is gone, so this starts a fresh shell.)
+    pub fn reopen_closed_tab(&mut self) {
+        let Some(closed) = self.closed.pop() else {
+            return;
+        };
+        if let Some(id) = self.spawn_tab(closed.profile, closed.cwd, None) {
+            if let Some(tab) = self.tabs.get_mut(&id) {
+                tab.custom_title = closed.custom_title;
+            }
+            self.ws.reorder(id, closed.index);
         }
     }
 
@@ -200,6 +263,36 @@ impl App {
             .unwrap_or(0);
         self.ws.activate(id);
         self.new_tab(idx, None);
+    }
+
+    /// Start renaming a tab in the sidebar (peeking it open if collapsed).
+    pub fn start_rename(&mut self, id: TabId) {
+        let current = self
+            .tabs
+            .get(&id)
+            .map(|t| t.title().to_string())
+            .unwrap_or_default();
+        self.renaming = Some((id, current));
+        self.scroll_to_focused = true;
+        if self.sidebar_collapsed {
+            self.sidebar_peek = true;
+        }
+    }
+
+    /// Jump to the next tab (after the focused one, wrapping) that has a bell or unread output.
+    fn next_activity(&mut self) {
+        let n = self.ws.order.len();
+        let start = self
+            .ws
+            .focused()
+            .and_then(|f| self.ws.order.iter().position(|t| *t == f))
+            .unwrap_or(0);
+        let next = (1..=n)
+            .map(|i| self.ws.order[(start + i) % n])
+            .find(|id| self.tabs.get(id).is_some_and(|t| t.bell || t.activity));
+        if let Some(id) = next {
+            self.activate(id);
+        }
     }
 
     /// Show a tab and clear its unread markers.
@@ -309,6 +402,20 @@ impl App {
         self.ctx.request_repaint_after(Duration::from_secs(1));
     }
 
+    /// Remember the previously focused tab (the switcher preselects it).
+    fn track_focus(&mut self) {
+        let focused = self.ws.focused();
+        if focused != self.last_focused {
+            if self
+                .last_focused
+                .is_some_and(|t| self.tabs.contains_key(&t))
+            {
+                self.prev_focused = self.last_focused;
+            }
+            self.last_focused = focused;
+        }
+    }
+
     fn update_window_title(&mut self) {
         let title = match self.ws.focused().and_then(|f| self.tabs.get(&f)) {
             Some(t) => format!("{} — vtt", t.title()),
@@ -323,9 +430,14 @@ impl App {
 
     /// App-level shortcuts. Returns true if the key was consumed.
     fn handle_shortcut(&mut self, key: Key, physical: Option<Key>, m: Modifiers) -> bool {
-        let Some(action) = self.keybinds.lookup(key, physical, m) else {
-            return false;
-        };
+        match self.keybinds.lookup(key, physical, m) {
+            Some(action) => self.run_action(action),
+            None => false,
+        }
+    }
+
+    /// Perform an app action. Returns false if it didn't apply, so the key should reach the shell.
+    pub fn run_action(&mut self, action: Action) -> bool {
         match action {
             Action::NewTab => {
                 self.new_tab(0, None);
@@ -345,25 +457,57 @@ impl App {
                 self.sidebar_collapsed = !self.sidebar_collapsed;
                 self.sidebar_peek = false;
             }
-            Action::NextTab => self.ws.cycle(true),
-            Action::PrevTab => self.ws.cycle(false),
+            Action::ReopenClosedTab => self.reopen_closed_tab(),
+            Action::DuplicateTab => {
+                if let Some(f) = self.ws.focused() {
+                    self.duplicate_tab(f);
+                }
+            }
+            Action::RenameTab => {
+                if let Some(f) = self.ws.focused() {
+                    self.start_rename(f);
+                }
+            }
+            Action::MinimizePane => {
+                if let Some(f) = self.ws.focused() {
+                    self.ws.minimize(f);
+                }
+            }
+            Action::NextTab | Action::PrevTab => {
+                // With a single tab, let Alt+Up/Down through to the shell.
+                if self.ws.order.len() < 2 {
+                    return false;
+                }
+                self.ws.cycle(action == Action::NextTab);
+            }
+            Action::MoveTabUp | Action::MoveTabDown => {
+                if let Some(f) = self.ws.focused() {
+                    self.ws.move_tab(f, action == Action::MoveTabDown);
+                }
+            }
             Action::GotoTab(n) => {
                 if let Some(&id) = self.ws.order.get(n as usize - 1) {
                     self.ws.activate(id);
                 }
             }
-            Action::FocusLeft | Action::FocusRight | Action::FocusUp | Action::FocusDown => {
-                // Without a split, let the key through (shells use Alt+Arrow for word movement).
-                if self.pane_rects.len() < 2 {
-                    return false;
+            Action::LastTab => {
+                if let Some(&id) = self.ws.order.last() {
+                    self.ws.activate(id);
                 }
+            }
+            Action::NextActivity => self.next_activity(),
+            Action::CommandPalette => self.switcher = Some(crate::ui::Switcher::default()),
+            Action::FocusLeft | Action::FocusRight | Action::FocusUp | Action::FocusDown => {
                 let dir = match action {
                     Action::FocusLeft => egui::vec2(-1.0, 0.0),
                     Action::FocusRight => egui::vec2(1.0, 0.0),
                     Action::FocusUp => egui::vec2(0.0, -1.0),
                     _ => egui::vec2(0.0, 1.0),
                 };
-                self.focus_neighbor(dir);
+                // With no pane in that direction, let the key through (shells use Alt+Arrow for word movement).
+                if !self.focus_neighbor(dir) {
+                    return false;
+                }
             }
             Action::ZoomIn => self.font_size = (self.font_size + 1.0).min(48.0),
             Action::ZoomOut => self.font_size = (self.font_size - 1.0).max(6.0),
@@ -380,14 +524,17 @@ impl App {
             }
         }
         self.mark_seen();
+        self.scroll_to_focused = true;
         true
     }
 
-    /// Move focus to the closest pane in direction `dir`.
-    fn focus_neighbor(&mut self, dir: egui::Vec2) {
-        let Some(cur) = self.ws.focused() else { return };
+    /// Move focus to the closest pane in direction `dir`. Returns false if there is none.
+    fn focus_neighbor(&mut self, dir: egui::Vec2) -> bool {
+        let Some(cur) = self.ws.focused() else {
+            return false;
+        };
         let Some(&(_, from)) = self.pane_rects.iter().find(|(t, _)| *t == cur) else {
-            return;
+            return false;
         };
         let best = self
             .pane_rects
@@ -399,14 +546,21 @@ impl App {
                 (along > 0.0).then(|| (t, along + (d - dir * along).length() * 2.0))
             })
             .min_by(|a, b| a.1.total_cmp(&b.1));
-        if let Some((t, _)) = best {
-            self.activate(t);
+        match best {
+            Some((t, _)) => {
+                self.activate(t);
+                true
+            }
+            None => false,
         }
     }
 
     /// Route keyboard/clipboard events to the focused terminal.
     fn handle_keyboard(&mut self) {
-        if self.renaming.is_some() || self.ctx.egui_wants_keyboard_input() {
+        if self.renaming.is_some()
+            || self.switcher.is_some()
+            || self.ctx.egui_wants_keyboard_input()
+        {
             return;
         }
         let events = self.ctx.input(|i| i.events.clone());
@@ -414,7 +568,10 @@ impl App {
         // A key that triggered a shortcut is followed by its text (e.g. "t" for Alt+T);
         // swallow it so the shell doesn't also receive ESC t.
         let mut swallow_text = false;
-        for event in events {
+        // Indices of swallowed text events, removed from egui's input afterwards so a text field
+        // opened by the shortcut (rename, switcher) doesn't receive them either.
+        let mut swallowed = Vec::new();
+        for (index, event) in events.into_iter().enumerate() {
             match event {
                 egui::Event::Key {
                     key,
@@ -428,6 +585,10 @@ impl App {
                         swallow_text = true;
                         continue;
                     }
+                    // Keys typed after opening the switcher or a rename box belong to that text field.
+                    if self.switcher.is_some() || self.renaming.is_some() {
+                        break;
+                    }
                     let Some(tab) = self.focused_tab() else {
                         continue;
                     };
@@ -436,7 +597,11 @@ impl App {
                         self.send_input(bytes);
                     }
                 }
-                egui::Event::Text(_) if swallow_text => swallow_text = false,
+                egui::Event::Text(_) if swallow_text => {
+                    swallow_text = false;
+                    swallowed.push(index);
+                }
+                _ if self.switcher.is_some() || self.renaming.is_some() => break,
                 egui::Event::Text(text) => {
                     let bytes = crate::input::encode_text(&text, mods);
                     self.send_input(bytes);
@@ -456,6 +621,15 @@ impl App {
                 egui::Event::Paste(text) => self.paste(&text),
                 _ => {}
             }
+        }
+        if !swallowed.is_empty() {
+            self.ctx.input_mut(|i| {
+                let mut index = 0;
+                i.events.retain(|_| {
+                    index += 1;
+                    !swallowed.contains(&(index - 1))
+                });
+            });
         }
     }
 
@@ -522,7 +696,7 @@ impl eframe::App for App {
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         let ctx = ui.ctx().clone();
         // Buttons must never keep keyboard focus: Space/Enter belong to the terminal.
-        if self.renaming.is_none() {
+        if self.renaming.is_none() && self.switcher.is_none() {
             ctx.memory_mut(|m| {
                 if let Some(id) = m.focused() {
                     m.surrender_focus(id);
@@ -542,6 +716,8 @@ impl eframe::App for App {
 
         self.sidebar(ui);
         self.panes(ui);
+        self.switcher_ui(&ctx);
+        self.track_focus();
         self.update_window_title();
     }
 }

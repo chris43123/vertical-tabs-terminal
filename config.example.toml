@@ -40,6 +40,7 @@ ansi = [
 # next_tab = ["ctrl+tab", "alt+j"]
 # prev_tab = ["ctrl+shift+tab", "alt+k"]
 # close_tab = []                           # unbind
+# duplicate_tab = "alt+shift+n"            # unbound by default
 
 # Extra profiles, added after the auto-discovered shells.
 # A profile with the same name as a discovered one replaces it.

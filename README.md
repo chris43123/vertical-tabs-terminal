@@ -23,27 +23,51 @@ Written in Rust with [egui](https://github.com/emilk/egui) on [wgpu](https://wgp
 
 ## Keybindings
 
-On Linux and Windows the app shortcuts use **Alt**, the key in the same spot as Cmd on a Mac. Alt+B, Alt+D and Alt+F are left alone because shells use them to move and delete by word.
+vtt is built to be driven from the keyboard. On Linux and Windows the app shortcuts use **Alt**, the key in the same spot as Cmd on a Mac. Alt+B, Alt+D and Alt+F are left alone because shells use them to move and delete by word.
+
+**Moving around**
+
+| Action | Linux / Windows | macOS |
+|---|---|---|
+| Tab switcher / command palette | `Alt+P` (also `Ctrl+Shift+P`) | `⌘P` |
+| Next / previous tab (in sidebar order, including split panes) | `Alt+Down` / `Alt+Up` | `⌘↓` / `⌘↑` |
+| Jump to tab 1–8 / last tab | `Alt+1` … `Alt+8` / `Alt+9` | `⌘1` … `⌘8` / `⌘9` |
+| Go to next tab with new output or a bell | `Alt+A` | `⌘⇧A` |
+| Focus pane left / right | `Alt+Left` / `Alt+Right` | `⌘⌥←` / `⌘⌥→` |
+| Focus pane above / below | `Ctrl+Alt+Up` / `Ctrl+Alt+Down` | `⌘⌥↑` / `⌘⌥↓` |
+| Also next / previous tab | `Ctrl+Tab` / `Ctrl+Shift+Tab`, `Ctrl+PageDown` / `Ctrl+PageUp` | same, plus `⌘⇧]` / `⌘⇧[` |
+
+**Managing tabs**
 
 | Action | Linux / Windows | macOS |
 |---|---|---|
 | New tab | `Alt+T` (also `Ctrl+Shift+T`) | `⌘T` |
 | Close tab | `Alt+W` (also `Ctrl+Shift+W`) | `⌘W` |
-| Jump to tab 1–9 | `Alt+1` … `Alt+9` | `⌘1` … `⌘9` |
-| Next / previous tab | `Ctrl+Tab` / `Ctrl+Shift+Tab`, `Ctrl+PageDown` / `Ctrl+PageUp` | same, plus `⌘⇧]` / `⌘⇧[` |
-| Split right with new tab | `Alt+Shift+D` | `⌘D` |
-| Split down with new tab | `Alt+Shift+E` | `⌘⇧D` |
+| Reopen closed tab (same shell, folder, name and position) | `Alt+Shift+T` | `⌘⇧T` |
+| Rename tab | `Alt+R` | `⌘R` |
+| Move tab (or its split group) up / down | `Alt+Shift+Up` / `Alt+Shift+Down` | `⌘⇧↑` / `⌘⇧↓` |
+| Split right / down with a new tab | `Alt+Shift+D` / `Alt+Shift+E` | `⌘D` / `⌘⇧D` |
+| Minimise pane back to its own tab | `Alt+M` | `⌘⇧M` |
 | Toggle sidebar collapse | `Alt+Shift+B` | `⌘B` |
-| Move focus between panes | `Alt+Arrow` (only while split) | `⌘⌥Arrow` |
+| Duplicate tab | unbound (palette or right-click) | same |
+
+**Terminal**
+
+| Action | Linux / Windows | macOS |
+|---|---|---|
 | Font zoom in / out / reset | `Ctrl+=` / `Ctrl+-` / `Ctrl+0` | `⌘=` / `⌘-` / `⌘0` |
 | Scroll back | `Shift+PageUp` / `Shift+PageDown` | same |
 | Copy / paste | `Ctrl+Shift+C` / `Ctrl+Shift+V`, plus `Ctrl+V` | `⌘C` / `⌘V` |
 
-`Ctrl+C` copies when text is selected; otherwise it sends an interrupt as usual.
+`Ctrl+C` copies when text is selected; otherwise it sends an interrupt as usual. Pane-focus and next/previous-tab keys pass through to the shell when there is nothing to move to (a single tab, or no pane in that direction).
+
+**The palette** (`Alt+P`) fuzzy-searches your tabs, every command (each shown with its shortcut, so it doubles as a cheat sheet) and "new tab with profile X".
+- It opens with your previously focused tab selected, so `Alt+P`, `Enter` flips between two tabs.
+- Move with `Up`/`Down`, `Tab`/`Shift+Tab` or `Ctrl+N`/`Ctrl+P`; `Enter` picks and `Esc` closes.
 
 Every shortcut can be changed in the `[keybindings]` section of the config (see below). Setting an action replaces all of its defaults. Use a list for several chords, and `[]` to unbind it. Modifiers are `ctrl`, `shift`, `alt` and `cmd` (macOS only). Keys are letters, digits, `f1`–`f24`, `tab`, `enter`, `space`, `pageup`, `pagedown`, `home`, `end`, `left`/`right`/`up`/`down`, `plus`, `minus`, `equals`, `[`, `]` and similar.
 
-Actions: `new_tab`, `close_tab`, `split_right`, `split_down`, `toggle_sidebar`, `next_tab`, `prev_tab`, `goto_tab_1` … `goto_tab_9`, `focus_left`, `focus_right`, `focus_up`, `focus_down`, `zoom_in`, `zoom_out`, `zoom_reset`, `scroll_page_up`, `scroll_page_down`.
+Actions: `new_tab`, `close_tab`, `reopen_closed_tab`, `duplicate_tab`, `rename_tab`, `split_right`, `split_down`, `minimize_pane`, `toggle_sidebar`, `next_tab`, `prev_tab`, `move_tab_up`, `move_tab_down`, `goto_tab_1` … `goto_tab_9`, `last_tab`, `next_activity`, `command_palette`, `focus_left`, `focus_right`, `focus_up`, `focus_down`, `zoom_in`, `zoom_out`, `zoom_reset`, `scroll_page_up`, `scroll_page_down`.
 
 ## Building
 
@@ -114,6 +138,7 @@ ansi = [
 # next_tab = ["ctrl+tab", "alt+j"]
 # prev_tab = ["ctrl+shift+tab", "alt+k"]
 # close_tab = []                           # unbind
+# duplicate_tab = "alt+shift+n"            # unbound by default
 
 # Extra profiles, added after the auto-discovered shells.
 # A profile with the same name as a discovered one replaces it.

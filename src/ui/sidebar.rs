@@ -26,6 +26,7 @@ enum Action {
     NewTab(usize),
     ToggleCollapse,
     Reorder(TabId, usize),
+    Move(TabId, bool),
 }
 
 impl App {
@@ -56,6 +57,7 @@ impl App {
 
         self.drag_ghost(ui.ctx());
 
+        self.scroll_to_focused = false;
         for action in actions {
             self.apply(action);
         }
@@ -382,6 +384,11 @@ impl App {
             );
         }
 
+        if (focused || self.renaming.as_ref().is_some_and(|(r, _)| *r == id))
+            && self.scroll_to_focused
+        {
+            resp.scroll_to_me(None);
+        }
         let resp = if expanded {
             resp
         } else {
@@ -399,23 +406,33 @@ impl App {
         if resp.drag_started() {
             egui::DragAndDrop::set_payload(ui.ctx(), TabDrag(id));
         }
+        let kb = &self.keybinds;
         resp.context_menu(|ui| {
-            if ui.button("Rename").clicked() {
-                actions.push(Action::StartRename(id));
-                ui.close();
-            }
-            if ui.button("Duplicate").clicked() {
-                actions.push(Action::Duplicate(id));
-                ui.close();
-            }
-            if in_split && ui.button("Minimise from split").clicked() {
-                actions.push(Action::Minimize(id));
-                ui.close();
-            }
-            ui.separator();
-            if ui.button("Close").clicked() {
-                actions.push(Action::Close(id));
-                ui.close();
+            let items = [
+                ("Rename", Shortcut::RenameTab, Action::StartRename(id)),
+                ("Duplicate", Shortcut::DuplicateTab, Action::Duplicate(id)),
+                ("Move up", Shortcut::MoveTabUp, Action::Move(id, false)),
+                ("Move down", Shortcut::MoveTabDown, Action::Move(id, true)),
+                (
+                    "Minimise from split",
+                    Shortcut::MinimizePane,
+                    Action::Minimize(id),
+                ),
+                ("Close", Shortcut::CloseTab, Action::Close(id)),
+            ];
+            for (text, shortcut, action) in items {
+                if matches!(action, Action::Minimize(_)) && !in_split {
+                    continue;
+                }
+                if matches!(action, Action::Close(_)) {
+                    ui.separator();
+                }
+                let button =
+                    egui::Button::new(text).shortcut_text(kb.label(shortcut).unwrap_or_default());
+                if ui.add(button).clicked() {
+                    actions.push(action);
+                    ui.close();
+                }
             }
         });
         rect
@@ -457,16 +474,9 @@ impl App {
             Action::Close(id) => self.close_tab(id),
             Action::Duplicate(id) => self.duplicate_tab(id),
             Action::Minimize(id) => self.ws.minimize(id),
-            Action::StartRename(id) => {
-                let current = self
-                    .tabs
-                    .get(&id)
-                    .map(|t| t.title().to_string())
-                    .unwrap_or_default();
-                self.renaming = Some((id, current));
-                if self.sidebar_collapsed {
-                    self.sidebar_peek = true;
-                }
+            Action::StartRename(id) => self.start_rename(id),
+            Action::Move(id, down) => {
+                self.ws.move_tab(id, down);
             }
             Action::CommitRename => {
                 if let Some((id, text)) = self.renaming.take()
