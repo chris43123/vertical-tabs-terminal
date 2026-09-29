@@ -1,0 +1,26 @@
+[package]
+name = "vtt"
+version = "0.1.0"
+edition = "2024"
+description = "Vertical Tabs Terminal - a lightweight GPU-accelerated terminal with a vertical tab sidebar"
+license = "MIT"
+
+[dependencies]
+eframe = { version = "0.36", default-features = false, features = ["wgpu", "default_fonts", "wayland", "x11"] }
+alacritty_terminal = "0.26"
+swash = "0.2"
+fontdb = "0.24"
+arboard = "3.6"
+serde = { version = "1", features = ["derive"] }
+toml = "1"
+dirs = "7"
+epaint_default_fonts = "0.36"
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+strip = true
+opt-level = 3

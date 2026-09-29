@@ -1,0 +1,54 @@
+# vtt configuration
+# Linux:   ~/.config/vtt/config.toml
+# macOS:   ~/Library/Application Support/vtt/config.toml
+# Windows: %APPDATA%\vtt\config.toml
+# Every key is optional; omitted keys use the defaults shown here.
+
+# Lines of scrollback kept per tab.
+scrollback = 10000
+
+# Sidebar width in logical pixels when expanded.
+sidebar_width = 240.0
+
+# Start with the sidebar collapsed to icons.
+sidebar_collapsed = false
+
+# Profile used for new tabs (defaults to the first discovered shell).
+# default_profile = "fish"
+
+[font]
+# Font family; defaults to the system monospace font.
+# family = "JetBrains Mono"
+size = 14.0
+
+# Terminal palette (Catppuccin Mocha by default).
+[colors]
+foreground = "#cdd6f4"
+background = "#1e1e2e"
+cursor = "#f5e0dc"
+selection = "#585b70"
+# 16 ANSI colors: normal 0-7, then bright 8-15.
+ansi = [
+  "#45475a", "#f38ba8", "#a6e3a1", "#f9e2af", "#89b4fa", "#f5c2e7", "#94e2d5", "#bac2de",
+  "#585b70", "#f38ba8", "#a6e3a1", "#f9e2af", "#89b4fa", "#f5c2e7", "#94e2d5", "#a6adc8",
+]
+
+# Shortcut overrides. Setting an action replaces all of its defaults.
+# Use a list for several chords, or [] to unbind an action.
+[keybindings]
+# new_tab = "ctrl+t"                       # if you don't use Ctrl+T in your shell or fzf
+# next_tab = ["ctrl+tab", "alt+j"]
+# prev_tab = ["ctrl+shift+tab", "alt+k"]
+# close_tab = []                           # unbind
+
+# Extra profiles, added after the auto-discovered shells.
+# A profile with the same name as a discovered one replaces it.
+[[profiles]]
+name = "htop"
+command = "htop"
+args = []
+# cwd = "/home/me/projects"
+icon = "H"
+color = "#a6e3a1"
+[profiles.env]
+# FOO = "bar"
