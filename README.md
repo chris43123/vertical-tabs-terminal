@@ -140,6 +140,8 @@ cargo install --path .
 
 This installs `vtt` to `~/.cargo/bin`. For your app launcher, copy the desktop entry too: `cp packaging/vtt.desktop ~/.local/share/applications/` (it runs `vtt`, so `~/.cargo/bin` must be on the launcher's `PATH`).
 
+While hacking on vtt, `scripts/install-local.sh` does both from your working tree: uncommitted changes included, no sudo. If the `vtt-git` package is also installed it wins on `PATH`, so remove it first.
+
 ## Building
 
 Requires a stable Rust toolchain.
