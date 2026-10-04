@@ -14,7 +14,9 @@ impl App {
             return;
         }
         let c = self.chrome.clone();
-        let hint = self.keybinds.hint(crate::keybinds::Action::OpenSettings);
+        let hint = self
+            .keybinds
+            .hint(crate::config::keybinds::Action::OpenSettings);
         let (mut open, mut dismiss) = (false, false);
 
         egui::Area::new(Id::new("problems_banner"))

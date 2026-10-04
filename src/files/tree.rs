@@ -238,43 +238,6 @@ pub fn natural_cmp(a: &str, b: &str) -> std::cmp::Ordering {
     }
 }
 
-/// Quote a path for pasting into a shell.
-pub fn shell_quote(path: &Path) -> String {
-    let s = path.to_string_lossy();
-    if cfg!(windows) {
-        format!("\"{s}\"")
-    } else if s
-        .chars()
-        .all(|c| c.is_ascii_alphanumeric() || "/._-+~,@%".contains(c))
-    {
-        s.into_owned()
-    } else {
-        // Works in sh, bash, zsh and fish: close the quote, add an escaped quote, reopen.
-        format!("'{}'", s.replace('\'', r"'\''"))
-    }
-}
-
-/// Open a file or folder with the system's default application.
-pub fn open_with_default_app(path: &Path) -> Result<(), String> {
-    let mut cmd = if cfg!(target_os = "macos") {
-        std::process::Command::new("open")
-    } else if cfg!(windows) {
-        // `start` opens files with their associated app and folders in Explorer.
-        let mut c = std::process::Command::new("cmd");
-        c.args(["/C", "start", ""]);
-        c
-    } else {
-        std::process::Command::new("xdg-open")
-    };
-    cmd.arg(path)
-        .stdin(std::process::Stdio::null())
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
-        .spawn()
-        .map(|_| ())
-        .map_err(|e| format!("couldn't open {}: {e}", path.display()))
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -348,13 +311,5 @@ mod tests {
         let mut tree = FileTree::default();
         tree.set_root(PathBuf::from("/definitely/not/here"));
         assert_eq!(names(&tree.rows()), ["!"]);
-    }
-
-    #[cfg(unix)]
-    #[test]
-    fn quotes_for_shells() {
-        assert_eq!(shell_quote(Path::new("/tmp/a-b.txt")), "/tmp/a-b.txt");
-        assert_eq!(shell_quote(Path::new("/tmp/my file")), "'/tmp/my file'");
-        assert_eq!(shell_quote(Path::new("it's")), r"'it'\''s'");
     }
 }

@@ -6,7 +6,7 @@ use std::path::PathBuf;
 
 use crate::config::Config;
 
-const EXAMPLE: &str = include_str!("../config.example.toml");
+const EXAMPLE: &str = include_str!("../../config.example.toml");
 
 /// Make sure the config file exists (seeded with the commented example). Returns its path.
 pub fn ensure_config() -> Result<PathBuf, String> {
@@ -146,31 +146,6 @@ fn split_command(cmd: &str) -> Vec<String> {
         parts.push(cur);
     }
     parts
-}
-
-/// Open a file with the system's default handler, detached from vtt.
-pub fn open_external(path: &std::path::Path) -> Result<(), String> {
-    let mut cmd = if cfg!(target_os = "macos") {
-        let mut c = std::process::Command::new("open");
-        c.arg("-t"); // default *text* editor, regardless of the .toml association
-        c
-    } else if cfg!(windows) {
-        std::process::Command::new("notepad.exe")
-    } else {
-        std::process::Command::new("xdg-open")
-    };
-    cmd.arg(path)
-        .stdin(std::process::Stdio::null())
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
-        .spawn()
-        .map(|_| ())
-        .map_err(|e| {
-            format!(
-                "couldn't open {}: {e} (set `editor` in the config or $EDITOR)",
-                path.display()
-            )
-        })
 }
 
 #[cfg(test)]

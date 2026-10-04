@@ -12,9 +12,9 @@ use eframe::egui::text::{LayoutJob, TextWrapping};
 use eframe::egui::{self, Align2, Color32, CornerRadius, FontId, RichText, Sense, Ui, pos2, vec2};
 
 use crate::app::{App, Content};
-use crate::files::{self, Row};
-use crate::git::{Change, Status};
-use crate::keybinds::Action as Shortcut;
+use crate::config::keybinds::Action as Shortcut;
+use crate::files::Row;
+use crate::files::git::{Change, Status};
 use crate::theme::mix;
 
 const ROW_HEIGHT: f32 = 22.0;
@@ -520,7 +520,7 @@ impl App {
             Action::InsertPath(p) => self.insert_path(&p),
             Action::CopyPath(p) => self.set_clipboard(p.to_string_lossy().into_owned()),
             Action::OpenExternal(p) => {
-                if let Err(err) = files::open_with_default_app(&p) {
+                if let Err(err) = crate::platform::open_with_default_app(&p) {
                     crate::diag::warn(err);
                 }
             }

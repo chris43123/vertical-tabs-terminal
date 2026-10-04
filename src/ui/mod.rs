@@ -4,6 +4,7 @@
 mod banner;
 mod files;
 mod help;
+pub mod icons;
 mod panes;
 mod preview;
 mod sidebar;

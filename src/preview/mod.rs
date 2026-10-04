@@ -1,6 +1,9 @@
 //! File preview contents: what kind of file it is, its text split into lines, and syntax
 //! highlighting computed on a worker thread (so a big file never stalls the UI).
 
+pub mod highlight;
+pub mod markdown;
+
 use std::ops::Range;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
@@ -8,7 +11,7 @@ use std::time::SystemTime;
 
 use syntect::highlighting::Theme;
 
-use crate::highlight::{Highlighter, Span};
+use highlight::{Highlighter, Span};
 
 /// Larger files aren't loaded.
 const MAX_TEXT: u64 = 8 * 1024 * 1024;
@@ -52,7 +55,7 @@ pub struct Preview {
     /// Show markdown as highlighted source instead of rendered.
     pub show_source: bool,
     /// Markdown split into text runs and tables, for rendering.
-    pub markdown: Arc<Vec<crate::markdown::Block>>,
+    pub markdown: Arc<Vec<crate::preview::markdown::Block>>,
     /// Soft-wrapped rows for the current width, when word wrap is on.
     pub wrapped: Option<Wrapped>,
     highlighted: Highlighted,
@@ -211,9 +214,9 @@ pub fn wrap_line(line: &str, cols: usize) -> Vec<Range<usize>> {
     rows
 }
 
-fn blocks(body: &Body) -> Arc<Vec<crate::markdown::Block>> {
+fn blocks(body: &Body) -> Arc<Vec<crate::preview::markdown::Block>> {
     Arc::new(match body {
-        Body::Markdown(t) => crate::markdown::split(&t.text),
+        Body::Markdown(t) => crate::preview::markdown::split(&t.text),
         _ => Vec::new(),
     })
 }

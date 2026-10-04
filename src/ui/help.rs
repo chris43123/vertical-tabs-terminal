@@ -7,8 +7,8 @@ use eframe::egui::{
 };
 
 use crate::app::App;
+use crate::config::keybinds::{Action, Chord};
 use crate::fuzzy::score as fuzzy_score;
-use crate::keybinds::{Action, Chord};
 use crate::theme::UiColors;
 
 #[derive(Default)]
@@ -320,7 +320,7 @@ impl App {
                 }
                 Op::Reset(action) => {
                     help.notice =
-                        crate::settings::set_keybinding(&action.config_name(), None).err();
+                        crate::config::edit::set_keybinding(&action.config_name(), None).err();
                     self.reload_config();
                 }
             }
@@ -475,7 +475,7 @@ impl App {
 
     fn save_chords(&mut self, action: Action, chords: &[Chord]) -> Result<(), String> {
         let list: Vec<String> = chords.iter().copied().map(Chord::to_config).collect();
-        crate::settings::set_keybinding(&action.config_name(), Some(&list))?;
+        crate::config::edit::set_keybinding(&action.config_name(), Some(&list))?;
         // Apply now rather than waiting for the file watcher.
         self.reload_config();
         Ok(())
@@ -545,7 +545,7 @@ fn chip(ui: &mut Ui, c: &UiColors, text: &str, kind: ChipKind) -> egui::Response
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::keybinds::ACTIONS;
+    use crate::config::keybinds::ACTIONS;
 
     #[test]
     fn every_action_is_listed() {

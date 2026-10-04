@@ -9,11 +9,11 @@ use eframe::egui::{
 };
 
 use crate::app::{App, Content, RenameTarget, TabDrag};
-use crate::icons::Icon;
-use crate::keybinds::Action as Shortcut;
-use crate::layout::GroupId;
-use crate::session::TabId;
+use crate::config::keybinds::Action as Shortcut;
 use crate::theme::mix;
+use crate::ui::icons::Icon;
+use crate::workspace::GroupId;
+use crate::workspace::TabId;
 
 const COLLAPSED_WIDTH: f32 = 48.0;
 const ROW_HEIGHT: f32 = 30.0;
@@ -699,7 +699,7 @@ impl App {
         };
         let icon_rect = Rect::from_center_size(icon_center, vec2(22.0, 22.0));
         let icon = match &tab.content {
-            Content::Term(_) => crate::icons::icon_for(
+            Content::Term(_) => crate::ui::icons::icon_for(
                 tab.process.as_deref(),
                 tab.cwd.as_deref(),
                 dirs::home_dir().as_deref(),

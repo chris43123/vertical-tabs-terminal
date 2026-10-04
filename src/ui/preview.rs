@@ -10,11 +10,11 @@ use eframe::egui::{
 };
 
 use crate::app::App;
-use crate::highlight::{self, Span};
-use crate::markdown::{Block, Table};
+use crate::preview::highlight::{self, Span};
+use crate::preview::markdown::{Block, Table};
 use crate::preview::{Body, Preview, Text};
-use crate::session::TabId;
 use crate::theme::mix;
+use crate::workspace::TabId;
 
 const TOOLBAR_HEIGHT: f32 = 28.0;
 /// Readable line length for rendered markdown.
@@ -109,7 +109,7 @@ impl App {
             match action {
                 Action::ToggleSource => preview.show_source = !preview.show_source,
                 Action::OpenExternal => {
-                    if let Err(err) = crate::files::open_with_default_app(&preview.path) {
+                    if let Err(err) = crate::platform::open_with_default_app(&preview.path) {
                         crate::diag::warn(err);
                     }
                 }
@@ -243,7 +243,7 @@ fn md_blocks(
 /// the column beside it (so a code block gets the item's full width).
 fn md_list(
     ui: &mut Ui,
-    list: &crate::markdown::List,
+    list: &crate::preview::markdown::List,
     cache: &mut egui_commonmark::CommonMarkCache,
     viewer: &dyn Fn(f32) -> egui_commonmark::CommonMarkViewer<'static>,
     c: &crate::theme::UiColors,
@@ -331,7 +331,7 @@ fn md_table(
                 .chain(&table.rows)
                 .filter_map(|row| row.get(col))
                 .map(|cell| {
-                    let text = crate::markdown::plain_text(cell);
+                    let text = crate::preview::markdown::plain_text(cell);
                     ui.fonts_mut(|f| f.layout_no_wrap(text, font.clone(), Color32::WHITE))
                         .size()
                         .x
@@ -343,7 +343,8 @@ fn md_table(
         })
         .collect();
     let border = 1.0;
-    let widths = crate::markdown::fit_columns(&natural, ui.available_width() - 2.0 * border);
+    let widths =
+        crate::preview::markdown::fit_columns(&natural, ui.available_width() - 2.0 * border);
     let grid = c.raised(0.14);
 
     egui::Frame::new()

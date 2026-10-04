@@ -7,9 +7,9 @@ use eframe::egui::{
 };
 
 use crate::app::App;
+use crate::config::keybinds::{ACTIONS, Action};
 use crate::fuzzy::score as fuzzy_score;
-use crate::keybinds::{ACTIONS, Action};
-use crate::session::TabId;
+use crate::workspace::TabId;
 
 const ROW_HEIGHT: f32 = 28.0;
 

@@ -1,6 +1,6 @@
 //! The main area: renders the active view's split tree, pane headers (─ minimise, × close),
 //! drag-to-split drop zones, splitter resizing, and mouse input (selection, reporting, scroll).
-//! Preview tabs render through `preview.rs`; files dragged from the tree split a pane to show
+//! Preview tabs render through `ui/preview.rs`; files dragged from the tree split a pane to show
 //! them, or type their path into a terminal.
 
 use std::time::Duration;
@@ -16,10 +16,10 @@ use eframe::egui::{
 };
 
 use crate::app::{App, TabDrag};
-use crate::input::{MouseButton, encode_mouse};
-use crate::layout::{Dir, Drop, Edge};
 use crate::render::{cell_at, grid_size_for, paint_terminal};
-use crate::session::TabId;
+use crate::terminal::input::{MouseButton, encode_mouse};
+use crate::workspace::TabId;
+use crate::workspace::{Dir, Drop, Edge};
 
 const HEADER_HEIGHT: f32 = 24.0;
 const PADDING: f32 = 4.0;
@@ -407,7 +407,8 @@ impl App {
         let min_rect = close_rect.translate(vec2(-22.0, 0.0));
         let close_tip = format!(
             "Close{}",
-            self.keybinds.hint(crate::keybinds::Action::CloseTab)
+            self.keybinds
+                .hint(crate::config::keybinds::Action::CloseTab)
         );
         for (r, glyph, tip, is_close) in [
             (min_rect, "—", "Minimise (move back to its own tab)", false),

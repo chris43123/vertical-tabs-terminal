@@ -1,5 +1,9 @@
 //! User configuration, loaded from `<config_dir>/vtt/config.toml`.
 
+pub mod edit;
+pub mod keybinds;
+pub mod watch;
+
 use std::collections::HashMap;
 use std::path::PathBuf;
 
@@ -30,8 +34,8 @@ pub struct Config {
     pub adopt_shell_palette: bool,
     /// Command used by "Open settings" (falls back to $VISUAL, $EDITOR, then the OS default app).
     pub editor: Option<String>,
-    /// Shortcut overrides: action name -> chord or list of chords (see `keybinds.rs`).
-    pub keybindings: HashMap<String, crate::keybinds::BindingConfig>,
+    /// Shortcut overrides: action name -> chord or list of chords (see `config/keybinds.rs`).
+    pub keybindings: HashMap<String, crate::config::keybinds::BindingConfig>,
     /// The files panel.
     pub files: FilesConfig,
     /// Scale of the whole UI (sidebar, panels, previews and terminals). Ctrl+Shift+=/- at runtime.
@@ -231,7 +235,7 @@ mod tests {
 
     #[test]
     fn example_config_parses() {
-        let cfg: Config = toml::from_str(include_str!("../config.example.toml")).unwrap();
+        let cfg: Config = toml::from_str(include_str!("../../config.example.toml")).unwrap();
         assert_eq!(cfg.scrollback, 10_000);
         assert!(cfg.keybindings.is_empty());
         assert!(cfg.profiles.is_empty());

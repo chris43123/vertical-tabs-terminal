@@ -11,7 +11,8 @@ use std::collections::HashMap;
 
 use eframe::egui::{Rect, pos2};
 
-use crate::session::TabId;
+/// Identifies a tab (terminal or preview) for its whole lifetime.
+pub type TabId = u64;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Dir {

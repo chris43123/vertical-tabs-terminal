@@ -13,9 +13,8 @@ use alacritty_terminal::term::{self, Term};
 use alacritty_terminal::tty;
 
 use crate::config::{CursorConfig, CursorStyle};
-use crate::profiles::Profile;
-
-pub type TabId = u64;
+use crate::terminal::profiles::Profile;
+use crate::workspace::TabId;
 
 /// Forwards terminal events from the PTY thread to the UI thread and wakes egui.
 #[derive(Clone)]
@@ -111,7 +110,7 @@ impl Session {
             listener.clone(),
         )));
 
-        let pty = crate::pty::FilteredPty::new(pty);
+        let pty = crate::terminal::pty::FilteredPty::new(pty);
         let event_loop = EventLoop::new(term.clone(), listener, pty, true, false)?;
         let notifier = Notifier(event_loop.channel());
         event_loop.spawn();

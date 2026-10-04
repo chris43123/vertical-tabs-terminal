@@ -5,24 +5,13 @@ mod config;
 mod diag;
 mod files;
 mod fuzzy;
-mod git;
-mod highlight;
-mod icons;
-mod input;
-mod keybinds;
-mod layout;
-mod markdown;
+mod platform;
 mod preview;
-mod procinfo;
-mod profiles;
-mod pty;
 mod render;
-mod search;
-mod session;
-mod settings;
+mod terminal;
 mod theme;
 mod ui;
-mod watch;
+mod workspace;
 
 fn main() -> eframe::Result {
     let config = config::Config::load();

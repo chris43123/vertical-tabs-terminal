@@ -218,7 +218,7 @@ mod tests {
         use alacritty_terminal::term::{Config, Term};
         use alacritty_terminal::vte::ansi::{NamedColor, Processor, Rgb};
 
-        let size = crate::session::GridSize { cols: 10, lines: 2 };
+        let size = crate::terminal::session::GridSize { cols: 10, lines: 2 };
         let mut term = Term::new(Config::default(), &size, VoidListener);
         let mut parser: Processor = Processor::new();
         parser.advance(&mut term, &run(&[b"\x1b]11;[100]#1A1A1D\x1b\\"]));

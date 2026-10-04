@@ -76,7 +76,7 @@ fn score(query: &str, path: &str) -> Option<i32> {
 }
 
 fn git_files(root: &Path) -> Option<(Vec<String>, bool)> {
-    crate::git::repo_root(root)?;
+    crate::files::git::repo_root(root)?;
     let out = Command::new("git")
         .arg("-C")
         .arg(root)

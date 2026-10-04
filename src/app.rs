@@ -11,18 +11,18 @@ use alacritty_terminal::grid::Scroll;
 use alacritty_terminal::vte::ansi::Rgb;
 use eframe::egui::{self, Color32, Key, Modifiers};
 
+use crate::config::keybinds::{Action, Keybinds};
+use crate::config::watch::Watcher;
 use crate::config::{BellMode, Config};
 use crate::files::FileTree;
-use crate::highlight::Highlighter;
-use crate::keybinds::{Action, Keybinds};
-use crate::layout::{Drop, Edge, GroupId, Workspace};
 use crate::preview::Preview;
-use crate::procinfo;
-use crate::profiles::{self, Profile};
+use crate::preview::highlight::Highlighter;
 use crate::render::{Fonts, Palette};
-use crate::session::{GridSize, Session, TabId};
+use crate::terminal::procinfo;
+use crate::terminal::profiles::{self, Profile};
+use crate::terminal::session::{GridSize, Session};
 use crate::theme::{self, Patch, Theme, UiColors, mix};
-use crate::watch::Watcher;
+use crate::workspace::{Drop, Edge, GroupId, TabId, Workspace};
 
 /// What a tab shows: a shell, or a read-only file preview.
 pub enum Content {
@@ -224,9 +224,9 @@ pub struct App {
     /// Soft-wrap long lines in text and code previews.
     pub preview_wrap: bool,
     /// Git state of the repository the files panel shows.
-    pub git: crate::git::Watcher,
+    pub git: crate::files::git::Watcher,
     /// The files panel's search box.
-    pub file_search: crate::search::Search,
+    pub file_search: crate::files::search::Search,
     /// The search box had keyboard focus last frame (so it keeps it).
     pub search_focused: bool,
     /// Give the search box keyboard focus next frame.
@@ -270,7 +270,7 @@ impl App {
         let (tx, rx) = channel();
         let keybinds = Keybinds::new(&config.keybindings);
         egui_extras::install_image_loaders(&ctx);
-        let syntax_theme_xml = crate::highlight::tm_theme(&palette);
+        let syntax_theme_xml = crate::preview::highlight::tm_theme(&palette);
         let mut files = FileTree::default();
         files.show_hidden = config.files.show_hidden;
         let files_open = config.files.open;
@@ -330,7 +330,7 @@ impl App {
             last_cwd_check: Instant::now(),
             highlighter: None,
             syntax_theme: Arc::new(
-                crate::highlight::load_theme(&syntax_theme_xml).unwrap_or_default(),
+                crate::preview::highlight::load_theme(&syntax_theme_xml).unwrap_or_default(),
             ),
             syntax_theme_xml,
             theme_generation: 1,
@@ -384,7 +384,7 @@ impl App {
         let session = match Session::spawn(
             id,
             &profile,
-            crate::session::term_config(self.config.scrollback, &self.config.cursor),
+            crate::terminal::session::term_config(self.config.scrollback, &self.config.cursor),
             size,
             self.fonts.cell_px(),
             cwd,
@@ -793,8 +793,8 @@ impl App {
     fn set_theme(&mut self, theme: &Theme) {
         self.palette = Palette::from_theme(theme);
         self.chrome = UiColors::from_theme(theme);
-        self.syntax_theme_xml = crate::highlight::tm_theme(&self.palette);
-        if let Some(t) = crate::highlight::load_theme(&self.syntax_theme_xml) {
+        self.syntax_theme_xml = crate::preview::highlight::tm_theme(&self.palette);
+        if let Some(t) = crate::preview::highlight::load_theme(&self.syntax_theme_xml) {
             self.syntax_theme = Arc::new(t);
         }
         self.theme_generation += 1;
@@ -856,7 +856,7 @@ impl App {
             apply_motion(&self.ctx, new.reduce_motion);
         }
         if new.cursor != old.cursor || new.scrollback != old.scrollback {
-            let options = crate::session::term_config(new.scrollback, &new.cursor);
+            let options = crate::terminal::session::term_config(new.scrollback, &new.cursor);
             for session in self.tabs.values().filter_map(Tab::session) {
                 session.term.lock().set_options(options.clone());
             }
@@ -896,12 +896,12 @@ impl App {
     /// Create the config if needed and open it: in a new tab when an editor is configured,
     /// otherwise with the system's default app. Saving applies changes live.
     pub fn open_settings(&mut self) {
-        let path = match crate::settings::ensure_config() {
+        let path = match crate::config::edit::ensure_config() {
             Ok(p) => p,
             Err(err) => return crate::diag::warn(err),
         };
-        let Some(mut cmd) = crate::settings::editor(&self.config) else {
-            if let Err(err) = crate::settings::open_external(&path) {
+        let Some(mut cmd) = crate::config::edit::editor(&self.config) else {
+            if let Err(err) = crate::platform::open_in_text_editor(&path) {
                 crate::diag::warn(err);
             }
             return;
@@ -1071,7 +1071,7 @@ impl App {
                     .and_then(|cwd| dir.strip_prefix(cwd).ok().map(Path::to_path_buf))
                     .filter(|rel| !rel.as_os_str().is_empty())
                     .unwrap_or_else(|| dir.to_path_buf());
-                let line = format!("cd {}\r", crate::files::shell_quote(&target));
+                let line = format!("cd {}\r", crate::terminal::shell_quote(&target));
                 self.send_input(line.into_bytes());
             }
             None => self.new_tab_in(dir.to_path_buf()),
@@ -1088,7 +1088,7 @@ impl App {
     pub fn insert_path(&mut self, path: &Path) {
         if let Some(id) = self.target_terminal() {
             self.activate(id);
-            self.paste(&format!("{} ", crate::files::shell_quote(path)));
+            self.paste(&format!("{} ", crate::terminal::shell_quote(path)));
         }
     }
 
@@ -1323,7 +1323,7 @@ impl App {
                         continue;
                     };
                     let mode = *session.term.lock().mode();
-                    if let Some(bytes) = crate::input::encode_key(key, modifiers, mode) {
+                    if let Some(bytes) = crate::terminal::input::encode_key(key, modifiers, mode) {
                         self.send_input(bytes);
                     }
                 }
@@ -1335,7 +1335,7 @@ impl App {
                     break;
                 }
                 egui::Event::Text(text) => {
-                    let bytes = crate::input::encode_text(&text, mods);
+                    let bytes = crate::terminal::input::encode_text(&text, mods);
                     self.send_input(bytes);
                 }
                 egui::Event::Copy => {
@@ -1416,7 +1416,7 @@ impl App {
     pub fn paste(&mut self, text: &str) {
         if let Some(session) = self.focused_session() {
             let mode = *session.term.lock().mode();
-            let bytes = crate::input::encode_paste(text, mode);
+            let bytes = crate::terminal::input::encode_paste(text, mode);
             self.send_input(bytes);
         }
     }

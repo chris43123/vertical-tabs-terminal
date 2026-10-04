@@ -8,7 +8,7 @@ use alacritty_terminal::vte::ansi::{Color, CursorShape, NamedColor};
 use eframe::egui::{self, Color32, Mesh, Pos2, Rect, Shape, Vec2, pos2};
 
 use super::font::{Fonts, Style};
-use crate::session::{GridSize, Listener};
+use crate::terminal::session::{GridSize, Listener};
 use crate::theme::Theme;
 
 #[derive(Clone, Debug)]
