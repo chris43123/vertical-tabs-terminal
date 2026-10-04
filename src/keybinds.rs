@@ -223,7 +223,7 @@ impl Chord {
     }
 
     /// Config form, e.g. "ctrl+shift+t"; parses back to the same chord.
-    pub fn to_config(&self) -> String {
+    pub fn to_config(self) -> String {
         let mut out = String::new();
         for (on, name) in [
             (self.ctrl, "ctrl+"),
@@ -751,7 +751,7 @@ mod tests {
         let chord = Chord::from_press(Key::Questionmark, Some(Key::Slash), mods(true, true, false));
         assert_eq!(chord.to_config(), "ctrl+shift+slash");
         assert!(!chord.is_bare());
-        assert!(Chord::parse("f5").unwrap().is_bare() == false);
+        assert!(!Chord::parse("f5").unwrap().is_bare());
         assert!(Chord::parse("shift+a").unwrap().is_bare());
     }
 }

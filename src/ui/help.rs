@@ -474,7 +474,7 @@ impl App {
     }
 
     fn save_chords(&mut self, action: Action, chords: &[Chord]) -> Result<(), String> {
-        let list: Vec<String> = chords.iter().map(Chord::to_config).collect();
+        let list: Vec<String> = chords.iter().copied().map(Chord::to_config).collect();
         crate::settings::set_keybinding(&action.config_name(), Some(&list))?;
         // Apply now rather than waiting for the file watcher.
         self.reload_config();
