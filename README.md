@@ -129,6 +129,26 @@ Folders group tabs in the sidebar, like folders in Zen Browser.
 
 ## Installing
 
+Prebuilt packages are attached to each [release](https://github.com/chris43123/vertical-tabs-terminal/releases):
+
+| Platform | Package | |
+|---|---|---|
+| macOS (Apple Silicon + Intel) | `vtt-<version>-macos-universal.dmg` | Open it and drag vtt to Applications. |
+| | `vtt-<version>-macos-universal.zip` | The same app, zipped. |
+| Windows (x64) | `vtt-<version>-windows-x86_64-setup.exe` | Installer: Start menu entry and uninstaller, no admin rights needed. |
+| | `vtt-<version>-windows-x86_64.zip` | Portable: unzip and run `vtt.exe`. |
+| Linux (x86_64) | `vtt-<version>-x86_64.AppImage` | Single file: `chmod +x` and run. |
+| | `vtt_<version>-1_amd64.deb` | Debian, Ubuntu: `sudo apt install ./vtt_*.deb` |
+| | `vtt-<version>-1.x86_64.rpm` | Fedora, openSUSE: `sudo dnf install ./vtt-*.rpm` |
+| | `vtt-<version>-linux-x86_64.tar.gz` | Binary, desktop entry and icons in a `/usr`-style tree. |
+
+`SHA256SUMS` lists the checksums of all of them.
+
+The macOS app and the Windows installer aren't signed by a registered developer yet, so the first launch shows a warning:
+
+- **macOS:** right-click vtt in Applications and choose *Open* (once), or run `xattr -dr com.apple.quarantine /Applications/vtt.app`.
+- **Windows:** SmartScreen says "Windows protected your PC": click *More info*, then *Run anyway*.
+
 **Arch / CachyOS / Manjaro:** build and install a package from this checkout:
 
 ```sh
@@ -136,17 +156,14 @@ cd packaging/arch
 makepkg -si
 ```
 
-It packages the latest *committed* state and installs `vtt` to `/usr/bin` with a desktop entry, so it shows up in your app launcher. If your Rust toolchain came from rustup's install script rather than pacman, use `makepkg -sid` so makepkg doesn't pull in the `rust` package as a build dependency. To update, pull (or commit) and run `makepkg -si` again. Remove it with `sudo pacman -R vtt-git`.
+It packages the latest *committed* state and installs `vtt` to `/usr/bin` with a desktop entry and icon, so it shows up in your app launcher. If your Rust toolchain came from rustup's install script rather than pacman, use `makepkg -sid` so makepkg doesn't pull in the `rust` package as a build dependency. To update, pull (or commit) and run `makepkg -si` again. Remove it with `sudo pacman -R vtt-git`.
 
-**Anywhere with Rust:**
+**From source, anywhere with Rust:** `scripts/install-local.sh` builds your working tree (uncommitted changes included, no sudo) and installs it for your user:
 
-```sh
-cargo install --path .
-```
+- Linux: `vtt` goes to `~/.cargo/bin`, with a desktop entry and icons in `~/.local/share`, so it shows up in your app launcher (`~/.cargo/bin` must be on the launcher's `PATH`). If the `vtt-git` package is also installed it wins on `PATH`, so remove it first.
+- macOS: builds `vtt.app` and copies it to `/Applications`.
 
-This installs `vtt` to `~/.cargo/bin`. For your app launcher, copy the desktop entry too: `cp packaging/vtt.desktop ~/.local/share/applications/` (it runs `vtt`, so `~/.cargo/bin` must be on the launcher's `PATH`).
-
-While hacking on vtt, `scripts/install-local.sh` does both from your working tree: uncommitted changes included, no sudo. If the `vtt-git` package is also installed it wins on `PATH`, so remove it first.
+Or just `cargo install --path .` for the bare binary.
 
 ## Building
 
@@ -163,6 +180,18 @@ On Linux, install the windowing/GPU development packages first (Debian/Ubuntu sh
 sudo apt install libxkbcommon-dev libwayland-dev libx11-dev libxcursor-dev \
   libxrandr-dev libxi-dev libgl1-mesa-dev libvulkan-dev libfontconfig1-dev
 ```
+
+### Release packages
+
+Each platform has a script that builds its packages into `dist/`:
+
+| Script | Builds | Needs |
+|---|---|---|
+| `scripts/package-macos.sh` | `vtt.app`, `.dmg`, `.zip` (universal when both Apple targets are installed) | Xcode command line tools |
+| `scripts/package-linux.sh` | `.tar.gz`, `.AppImage`, and `.deb` / `.rpm` | `cargo install cargo-deb cargo-generate-rpm` for the last two |
+| `scripts/package-windows.ps1` | portable `.zip` and the installer | [Inno Setup 6](https://jrsoftware.org/isinfo.php) for the installer |
+
+To publish a release, bump `version` in `Cargo.toml`, commit, and push a matching tag (`git tag v0.2.0 && git push origin v0.2.0`). The Release workflow builds every package on GitHub Actions and attaches them to a new GitHub release. The app icon lives in `packaging/icons/` (`render.sh` regenerates the PNGs and `.ico` from `vtt.svg`).
 
 ## Configuration
 
