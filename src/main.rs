@@ -15,6 +15,7 @@ mod markdown;
 mod preview;
 mod procinfo;
 mod profiles;
+mod pty;
 mod render;
 mod search;
 mod session;

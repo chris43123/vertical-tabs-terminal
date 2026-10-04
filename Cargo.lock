@@ -3041,6 +3041,7 @@ dependencies = [
  "fontdb",
  "image",
  "libc",
+ "polling",
  "pulldown-cmark",
  "serde",
  "serde_json",

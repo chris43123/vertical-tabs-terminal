@@ -110,6 +110,7 @@ impl Session {
         };
         let term = Arc::new(FairMutex::new(Term::new(config, &size, listener.clone())));
 
+        let pty = crate::pty::FilteredPty::new(pty);
         let event_loop = EventLoop::new(term.clone(), listener, pty, true, false)?;
         let notifier = Notifier(event_loop.channel());
         event_loop.spawn();

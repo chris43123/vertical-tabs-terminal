@@ -21,6 +21,8 @@ egui_extras = { version = "0.36", default-features = false, features = ["image",
 image = { version = "0.25", default-features = false, features = ["png", "jpeg", "gif", "webp"] }
 serde_json = { version = "1", features = ["preserve_order"] }
 pulldown-cmark = { version = "0.13", default-features = false }
+# Same version alacritty_terminal uses; needed to wrap its PTY (see src/pty.rs).
+polling = "3.8"
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"
