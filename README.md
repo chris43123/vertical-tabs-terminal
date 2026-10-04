@@ -110,7 +110,7 @@ cd packaging/arch
 makepkg -si
 ```
 
-It packages the latest *committed* state and installs `vtt` to `/usr/bin` with a desktop entry, so it shows up in your app launcher. To update, pull (or commit) and run `makepkg -si` again. Remove it with `sudo pacman -R vtt-git`.
+It packages the latest *committed* state and installs `vtt` to `/usr/bin` with a desktop entry, so it shows up in your app launcher. If your Rust toolchain came from rustup's install script rather than pacman, use `makepkg -sid` so makepkg doesn't pull in the `rust` package as a build dependency. To update, pull (or commit) and run `makepkg -si` again. Remove it with `sudo pacman -R vtt-git`.
 
 **Anywhere with Rust:**
 

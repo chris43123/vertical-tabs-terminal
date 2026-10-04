@@ -1,6 +1,8 @@
 # Builds vtt from the commits in this checkout (uncommitted changes are not included).
 # Usage, from this directory:  makepkg -si
 # To update later: pull or commit, then run `makepkg -si` again.
+# Rust from rustup's install script (not pacman) isn't seen as installed: use `makepkg -sid`.
+# makepkg rewrites pkgver= below on every build; that change doesn't need committing.
 
 pkgname=vtt-git
 pkgver=0.1.0.r0.g0000000
