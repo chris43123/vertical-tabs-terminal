@@ -37,6 +37,8 @@ pub enum Action {
     ToggleFiles,
     /// Put the focused tab into a new sidebar folder.
     NewGroup,
+    /// Open the files panel with its search box focused.
+    SearchFiles,
     FocusLeft,
     FocusRight,
     FocusUp,
@@ -89,6 +91,7 @@ pub const ACTIONS: &[(&str, &str, Action)] = &[
     ("open_settings", "Open settings file", Action::OpenSettings),
     ("toggle_files", "Toggle files panel", Action::ToggleFiles),
     ("new_group", "New folder with this tab", Action::NewGroup),
+    ("search_files", "Search files", Action::SearchFiles),
     ("focus_left", "Focus pane left", Action::FocusLeft),
     ("focus_right", "Focus pane right", Action::FocusRight),
     ("focus_up", "Focus pane above", Action::FocusUp),

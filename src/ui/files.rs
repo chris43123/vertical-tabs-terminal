@@ -1,6 +1,10 @@
 //! The files panel between the tab sidebar and the panes: a tree of the focused shell's cwd
 //! that follows it as you `cd`. Clicking a file previews it next to the terminal; folders
 //! expand in place, and a double-click `cd`s the shell into them.
+//!
+//! In a git repository the header shows the branch and how far it is ahead of/behind its
+//! upstream, and changed files (and the folders holding them) are drawn in green. A search
+//! box above the tree fuzzy-finds files anywhere below the folder.
 
 use std::path::{Path, PathBuf};
 
@@ -9,6 +13,7 @@ use eframe::egui::{self, Align2, Color32, CornerRadius, FontId, RichText, Sense,
 
 use crate::app::{App, Content};
 use crate::files::{self, Row};
+use crate::git::{Change, Status};
 use crate::keybinds::Action as Shortcut;
 use crate::theme::mix;
 
@@ -36,6 +41,10 @@ enum Action {
 impl App {
     pub(crate) fn files_panel(&mut self, ui: &mut Ui) {
         self.sync_files_root();
+        if let Some(root) = self.files.root().map(Path::to_path_buf) {
+            let ctx = ui.ctx().clone();
+            self.git.set_dir(&root, &ctx);
+        }
         let c = self.chrome.clone();
         let fill = mix(c.sidebar, c.bg, 0.45);
         let mut actions = Vec::new();
@@ -131,23 +140,219 @@ impl App {
         );
         job.wrap = TextWrapping::truncate_at_width(ui.available_width());
         ui.label(job).on_hover_text(root.to_string_lossy());
+        let git = self.git.status();
+        if let Some(status) = &git {
+            self.git_line(ui, status);
+        }
+        ui.add_space(2.0);
+        self.search_box(ui, &root, actions);
         ui.add_space(2.0);
         ui.separator();
 
-        let rows = self.files.rows();
         let selected = self.visible_preview_path();
+        if !self.file_search.query.trim().is_empty() {
+            self.search_results(ui, &root, git.as_deref(), selected.as_deref(), actions);
+            return;
+        }
+        let rows = self.files.rows();
         egui::ScrollArea::vertical()
             .auto_shrink([false, false])
             .id_salt("files_tree")
             .show_rows(ui, ROW_HEIGHT, rows.len(), |ui, range| {
                 ui.spacing_mut().item_spacing.y = 0.0;
                 for row in &rows[range] {
-                    self.file_row(ui, row, selected.as_deref(), actions);
+                    self.file_row(ui, row, git.as_deref(), selected.as_deref(), actions);
                 }
             });
     }
 
-    fn file_row(&self, ui: &mut Ui, row: &Row, selected: Option<&Path>, actions: &mut Vec<Action>) {
+    /// Branch (or detached commit), ahead/behind its upstream, and how many files changed.
+    fn git_line(&self, ui: &mut Ui, status: &Status) {
+        let c = &self.chrome;
+        let fill = fill_of(ui);
+        let dim = mix(c.fg, fill, 0.45);
+        let font = FontId::proportional(12.0);
+        let mut job = LayoutJob::default();
+        let mut push = |text: &str, color: Color32| {
+            job.append(text, 0.0, egui::TextFormat::simple(font.clone(), color));
+        };
+        match (&status.branch, &status.commit) {
+            (Some(branch), _) => push(branch, mix(c.accent, c.fg, 0.2)),
+            (None, Some(commit)) => push(&format!("detached {commit}"), c.bell),
+            (None, None) => push("no commits", dim),
+        }
+        if status.ahead > 0 {
+            push(&format!("  ⏶{}", status.ahead), c.fg);
+        }
+        if status.behind > 0 {
+            push(&format!("  ⏷{}", status.behind), c.fg);
+        }
+        match status.changed_count() {
+            0 => push("  clean", dim),
+            n => push(&format!("  {n} changed"), c.green),
+        }
+        job.wrap = TextWrapping::truncate_at_width(ui.available_width());
+        let tip = match (status.upstream, status.ahead, status.behind) {
+            (false, ..) => "No upstream branch".to_string(),
+            (true, 0, 0) => "Up to date with its upstream".to_string(),
+            (true, a, b) => format!("{a} commit(s) to push, {b} to pull"),
+        };
+        ui.label(job).on_hover_text(tip);
+    }
+
+    /// The search box. Up/Down pick a result, Enter previews it, Esc clears the search.
+    fn search_box(&mut self, ui: &mut Ui, root: &Path, actions: &mut Vec<Action>) {
+        let (mut down, mut up, mut enter, mut escape) = (false, false, false, false);
+        if self.search_focused {
+            ui.input_mut(|i| {
+                down = i.consume_key(egui::Modifiers::NONE, egui::Key::ArrowDown);
+                up = i.consume_key(egui::Modifiers::NONE, egui::Key::ArrowUp);
+                enter = i.consume_key(egui::Modifiers::NONE, egui::Key::Enter);
+                escape = i.consume_key(egui::Modifiers::NONE, egui::Key::Escape);
+            });
+        }
+        let hint = format!("Search files{}", self.keybinds.hint(Shortcut::SearchFiles));
+        let edit = ui.add(
+            egui::TextEdit::singleline(&mut self.file_search.query)
+                .hint_text(hint)
+                .desired_width(ui.available_width()),
+        );
+        if std::mem::take(&mut self.focus_search) {
+            edit.request_focus();
+        }
+        if edit.changed() {
+            self.file_search.selected = 0;
+        }
+        if escape {
+            self.file_search.query.clear();
+            edit.surrender_focus();
+        }
+        self.search_focused = edit.has_focus() && !escape;
+        if self.file_search.query.trim().is_empty() {
+            return;
+        }
+        let ctx = ui.ctx().clone();
+        self.file_search.ensure_index(root, &ctx);
+        let Some(index) = self.file_search.index(root) else {
+            return;
+        };
+        let results = self.file_search.results(&index);
+        let n = results.len();
+        if n > 0 {
+            let sel = &mut self.file_search.selected;
+            if down {
+                *sel = (*sel + 1) % n;
+            }
+            if up {
+                *sel = (*sel + n - 1) % n;
+            }
+            if enter {
+                actions.push(Action::Preview(root.join(&index.files[results[*sel]])));
+            }
+        }
+    }
+
+    /// Search matches instead of the tree: file name, then the folder it's in.
+    fn search_results(
+        &mut self,
+        ui: &mut Ui,
+        root: &Path,
+        git: Option<&Status>,
+        selected: Option<&Path>,
+        actions: &mut Vec<Action>,
+    ) {
+        let c = self.chrome.clone();
+        let fill = fill_of(ui);
+        let dim = mix(c.fg, fill, 0.5);
+        let Some(index) = self.file_search.index(root) else {
+            ui.label(RichText::new("Indexing…").color(dim));
+            return;
+        };
+        let results = self.file_search.results(&index);
+        if results.is_empty() {
+            let text = if self.file_search.building() {
+                "Indexing…"
+            } else {
+                "No matching files"
+            };
+            ui.label(RichText::new(text).color(dim));
+            return;
+        }
+        let picked = self.file_search.selected;
+        let scroll_to = self.search_focused;
+        egui::ScrollArea::vertical()
+            .auto_shrink([false, false])
+            .id_salt("files_search")
+            .show_rows(ui, ROW_HEIGHT, results.len(), |ui, range| {
+                ui.spacing_mut().item_spacing.y = 0.0;
+                for i in range {
+                    let rel = &index.files[results[i]];
+                    let path = root.join(rel);
+                    let (rect, resp) = ui.allocate_exact_size(
+                        vec2(ui.available_width(), ROW_HEIGHT),
+                        Sense::click_and_drag(),
+                    );
+                    let bg = if i == picked || selected == Some(path.as_path()) {
+                        mix(c.accent, fill, 0.72)
+                    } else if resp.hovered() {
+                        mix(fill, c.fg, 0.07)
+                    } else {
+                        Color32::TRANSPARENT
+                    };
+                    ui.painter().rect_filled(rect, CornerRadius::same(4), bg);
+                    let (dir, name) = match rel.rsplit_once('/') {
+                        Some((d, n)) => (d, n),
+                        None => ("", rel.as_str()),
+                    };
+                    let name_color = match git.and_then(|g| g.change(&path)) {
+                        Some(Change::Changed) => c.green,
+                        Some(Change::Conflict) => c.danger,
+                        None => file_color(name, &c),
+                    };
+                    let mut job = LayoutJob::default();
+                    job.append(
+                        name,
+                        0.0,
+                        egui::TextFormat::simple(FontId::proportional(13.0), name_color),
+                    );
+                    job.append(
+                        dir,
+                        8.0,
+                        egui::TextFormat::simple(FontId::proportional(11.5), dim),
+                    );
+                    job.wrap = TextWrapping::truncate_at_width(rect.width() - 14.0);
+                    let galley = ui.fonts_mut(|f| f.layout_job(job));
+                    ui.painter().galley(
+                        pos2(rect.left() + 8.0, rect.center().y - galley.size().y / 2.0),
+                        galley,
+                        c.fg,
+                    );
+                    if i == picked && scroll_to {
+                        resp.scroll_to_me(None);
+                    }
+                    if resp.clicked() {
+                        self.file_search.selected = i;
+                        actions.push(Action::Preview(path.clone()));
+                    }
+                    if resp.drag_started() {
+                        egui::DragAndDrop::set_payload(ui.ctx(), FileDrag(path.clone()));
+                    }
+                    resp.on_hover_text_at_pointer(rel);
+                }
+            });
+        if index.truncated {
+            ui.label(RichText::new("Only the first 200,000 files are searched").color(dim));
+        }
+    }
+
+    fn file_row(
+        &self,
+        ui: &mut Ui,
+        row: &Row,
+        git: Option<&Status>,
+        selected: Option<&Path>,
+        actions: &mut Vec<Action>,
+    ) {
         let c = &self.chrome;
         let (rect, resp) = ui.allocate_exact_size(
             vec2(ui.available_width(), ROW_HEIGHT),
@@ -210,10 +415,13 @@ impl App {
                 dim,
             );
         }
-        let color = if entry.is_dir {
-            mix(c.accent, c.fg, 0.35)
-        } else {
-            file_color(&entry.name, c)
+        // Changed files, and folders holding changes, are green (conflicts red).
+        let color = match (git.and_then(|g| g.change(&entry.path)), entry.is_dir) {
+            (Some(Change::Conflict), _) => c.danger,
+            (Some(Change::Changed), false) => c.green,
+            (Some(Change::Changed), true) => mix(c.green, c.fg, 0.25),
+            (None, true) => mix(c.accent, c.fg, 0.35),
+            (None, false) => file_color(&entry.name, c),
         };
         let color = if entry.hidden {
             mix(color, fill, 0.45)

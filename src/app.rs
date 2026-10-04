@@ -188,6 +188,17 @@ pub struct App {
     pub(crate) files_followed: Option<PathBuf>,
     /// Soft-wrap long lines in text and code previews.
     pub preview_wrap: bool,
+    /// Git state of the repository the files panel shows.
+    pub git: crate::git::Watcher,
+    /// The files panel's search box.
+    pub file_search: crate::search::Search,
+    /// The search box had keyboard focus last frame (so it keeps it).
+    pub search_focused: bool,
+    /// Give the search box keyboard focus next frame.
+    pub focus_search: bool,
+    /// The focused shell was at its prompt at the last check (a command finishing is when
+    /// git state is most likely to have changed).
+    shell_was_idle: bool,
     last_cwd_check: Instant,
     /// Loaded on first use: syntax definitions are a few MB.
     highlighter: Option<Arc<Highlighter>>,
@@ -260,6 +271,11 @@ impl App {
             problems_dismissed: false,
             files_open,
             preview_wrap,
+            git: Default::default(),
+            file_search: Default::default(),
+            search_focused: false,
+            focus_search: false,
+            shell_was_idle: true,
             files,
             files_followed: None,
             last_cwd_check: Instant::now(),
@@ -448,12 +464,7 @@ impl App {
             .copied()
             .find(|id| self.tabs.get(id).is_some_and(|t| t.preview().is_some()));
         if let Some(id) = existing {
-            let preview = Preview::open(path, &self.highlighter());
-            if let Some(tab) = self.tabs.get_mut(&id) {
-                tab.profile = preview_profile(&preview);
-                tab.custom_title = None;
-                tab.content = Content::Preview(Box::new(preview));
-            }
+            self.replace_preview(id, path);
             return;
         }
         let focused = self.ws.focused();
@@ -465,6 +476,65 @@ impl App {
             if self.ws.view_of(id) == self.ws.view_of(f) {
                 self.ws.activate(f);
             }
+        }
+    }
+
+    /// Show `path` in preview tab `id` instead of the file it shows now.
+    fn replace_preview(&mut self, id: TabId, path: PathBuf) {
+        let preview = Preview::open(path, &self.highlighter());
+        if let Some(tab) = self.tabs.get_mut(&id)
+            && tab.preview().is_some()
+        {
+            tab.profile = preview_profile(&preview);
+            tab.custom_title = None;
+            tab.content = Content::Preview(Box::new(preview));
+        }
+    }
+
+    /// A file or folder from the files panel dropped on pane `target`. On an edge it opens in a
+    /// new split there: a preview for a file, a terminal for a folder. In the center it types
+    /// the path into a terminal, or replaces what a preview shows.
+    pub fn drop_path(&mut self, target: TabId, path: PathBuf, drop: Drop) {
+        let target_is_preview = self
+            .tabs
+            .get(&target)
+            .is_some_and(|t| t.preview().is_some());
+        match drop {
+            Drop::Edge(edge) if path.is_dir() => {
+                self.activate(target);
+                if let Some(profile) = self.profiles.first().cloned() {
+                    self.spawn_tab(profile, Some(path), Some(edge));
+                }
+            }
+            Drop::Edge(edge) => {
+                let focused = self.ws.focused();
+                if let Some(id) = self.spawn_preview(path, Some((target, edge))) {
+                    // Like clicking a file: the new pane shows up, focus stays put.
+                    match focused.filter(|f| self.ws.view_of(*f) == self.ws.view_of(id)) {
+                        Some(f) => self.ws.activate(f),
+                        None => self.ws.activate(id),
+                    }
+                }
+            }
+            Drop::Center if target_is_preview => {
+                if !path.is_dir() {
+                    self.replace_preview(target, path);
+                }
+            }
+            Drop::Center => {
+                self.activate(target);
+                self.insert_path(&path);
+            }
+        }
+        self.scroll_to_focused = true;
+    }
+
+    /// Open `path` as a tab of its own: a preview, or a terminal for a folder.
+    pub fn open_path_tab(&mut self, path: PathBuf) {
+        if path.is_dir() {
+            self.new_tab_in(path);
+        } else {
+            self.spawn_preview(path, None);
         }
     }
 
@@ -617,6 +687,17 @@ impl App {
         {
             self.last_cwd_check = Instant::now();
             self.follow_cwd();
+            // A command just finished (shell back at its prompt): refresh git right away.
+            if let Some(session) = focused
+                .and_then(|f| self.tabs.get(&f))
+                .and_then(Tab::session)
+            {
+                let idle = shell_idle(session);
+                if idle && !self.shell_was_idle {
+                    self.git.tick(&self.ctx, true);
+                }
+                self.shell_was_idle = idle;
+            }
         }
         if self.config.adopt_shell_palette {
             self.adopt_shell_colors(&woke);
@@ -806,6 +887,7 @@ impl App {
             if self.files_open {
                 self.follow_cwd();
                 self.files.refresh();
+                self.git.tick(&self.ctx, false);
             }
             if previews_visible {
                 let hl = self.highlighter();
@@ -989,6 +1071,10 @@ impl App {
             Action::CommandPalette => self.switcher = Some(crate::ui::Switcher::default()),
             Action::OpenSettings => self.open_settings(),
             Action::ToggleFiles => self.files_open = !self.files_open,
+            Action::SearchFiles => {
+                self.files_open = true;
+                self.focus_search = true;
+            }
             Action::NewGroup => {
                 if let Some(f) = self.ws.focused() {
                     self.new_group(f);
@@ -1196,7 +1282,7 @@ impl eframe::App for App {
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         let ctx = ui.ctx().clone();
         // Buttons must never keep keyboard focus: Space/Enter belong to the terminal.
-        if self.renaming.is_none() && self.switcher.is_none() {
+        if self.renaming.is_none() && self.switcher.is_none() && !self.search_focused {
             ctx.memory_mut(|m| {
                 if let Some(id) = m.focused() {
                     m.surrender_focus(id);

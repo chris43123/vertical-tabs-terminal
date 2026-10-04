@@ -50,6 +50,8 @@ enum Action {
     CloseGroup(GroupId),
     NewTabInGroup(GroupId),
     ToggleFiles,
+    /// A file or folder from the files panel dropped on the tab list.
+    OpenPath(std::path::PathBuf),
 }
 
 /// A line in the tab list.
@@ -229,6 +231,24 @@ impl App {
                 }
             })
             .inner_rect;
+
+        // A file dragged from the files panel onto the list opens as a tab of its own.
+        if let Some(file) = egui::DragAndDrop::payload::<crate::ui::FileDrag>(ui.ctx())
+            && ui
+                .ctx()
+                .input(|i| i.pointer.hover_pos())
+                .is_some_and(|p| list_rect.contains(p))
+        {
+            ui.painter().rect_stroke(
+                list_rect.shrink(2.0),
+                CornerRadius::same(6),
+                Stroke::new(2.0, self.chrome.accent),
+                StrokeKind::Inside,
+            );
+            if ui.ctx().input(|i| i.pointer.any_released()) {
+                actions.push(Action::OpenPath(file.0.clone()));
+            }
+        }
 
         // Reordering: dragging a tab over the list shows an insertion line, or highlights a
         // folder header (dropping there puts the tab in that folder).
@@ -835,19 +855,20 @@ impl App {
 
     /// Floating label that follows the pointer while a tab is being dragged.
     fn drag_ghost(&self, ctx: &egui::Context) {
-        let Some(drag) = egui::DragAndDrop::payload::<TabDrag>(ctx) else {
-            return;
+        let label = if let Some(drag) = egui::DragAndDrop::payload::<TabDrag>(ctx) {
+            self.tabs.get(&drag.0).map(|t| t.title().to_string())
+        } else {
+            egui::DragAndDrop::payload::<crate::ui::FileDrag>(ctx).map(|f| {
+                f.0.file_name()
+                    .map(|n| n.to_string_lossy().into_owned())
+                    .unwrap_or_else(|| f.0.to_string_lossy().into_owned())
+            })
         };
-        let (Some(pos), Some(tab)) = (ctx.input(|i| i.pointer.hover_pos()), self.tabs.get(&drag.0))
-        else {
+        let (Some(pos), Some(label)) = (ctx.input(|i| i.pointer.hover_pos()), label) else {
             return;
         };
         let painter = ctx.layer_painter(egui::LayerId::new(Order::Tooltip, Id::new("drag_ghost")));
-        let galley = painter.layout_no_wrap(
-            tab.title().to_string(),
-            FontId::proportional(13.0),
-            self.chrome.fg,
-        );
+        let galley = painter.layout_no_wrap(label, FontId::proportional(13.0), self.chrome.fg);
         let rect = Rect::from_min_size(pos + vec2(14.0, 10.0), galley.size() + vec2(16.0, 10.0));
         painter.rect_filled(
             rect,
@@ -926,6 +947,7 @@ impl App {
                 }
             }
             Action::ToggleFiles => self.files_open = !self.files_open,
+            Action::OpenPath(path) => self.open_path_tab(path),
         }
     }
 }

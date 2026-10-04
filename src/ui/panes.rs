@@ -1,7 +1,7 @@
 //! The main area: renders the active view's split tree, pane headers (─ minimise, × close),
 //! drag-to-split drop zones, splitter resizing, and mouse input (selection, reporting, scroll).
-//! Preview tabs render through `preview.rs`; files dragged from the tree onto a terminal type
-//! their path.
+//! Preview tabs render through `preview.rs`; files dragged from the tree split a pane to show
+//! them, or type their path into a terminal.
 
 use alacritty_terminal::grid::Scroll;
 use alacritty_terminal::index::{Column, Line, Point};
@@ -27,7 +27,7 @@ enum PaneAction {
     Minimize(TabId),
     Close(TabId),
     Drop(TabId, TabId, Drop),
-    InsertPath(TabId, std::path::PathBuf),
+    DropPath(TabId, std::path::PathBuf, Drop),
 }
 
 impl App {
@@ -95,10 +95,7 @@ impl App {
                             self.ws.drop_on(dragged, target, drop);
                             self.activate(dragged);
                         }
-                        PaneAction::InsertPath(id, path) => {
-                            self.activate(id);
-                            self.insert_path(&path);
-                        }
+                        PaneAction::DropPath(id, path, drop) => self.drop_path(id, path, drop),
                     }
                 }
             });
@@ -155,6 +152,7 @@ impl App {
                 );
             }
             self.drop_zone(ui, id, rect, actions);
+            self.file_drop(ui, id, rect, actions);
             return;
         }
         let inner = body.shrink2(vec2(PADDING + 2.0, PADDING));
@@ -203,36 +201,34 @@ impl App {
         }
 
         self.drop_zone(ui, id, rect, actions);
-        self.file_drop(ui, id, body, actions);
+        self.file_drop(ui, id, rect, actions);
     }
 
-    /// A file dragged from the files panel onto a terminal types its path there.
-    fn file_drop(&self, ui: &Ui, id: TabId, body: Rect, actions: &mut Vec<PaneAction>) {
+    /// A file or folder dragged from the files panel onto a pane: an edge opens it in a new
+    /// split there (a preview, or a terminal for a folder); the center types its path into a
+    /// terminal, or shows the file in a preview.
+    fn file_drop(&self, ui: &Ui, id: TabId, rect: Rect, actions: &mut Vec<PaneAction>) {
         let Some(drag) = egui::DragAndDrop::payload::<crate::ui::FileDrag>(ui.ctx()) else {
             return;
         };
-        if !ui.rect_contains_pointer(body) {
+        let Some(pos) = ui.ctx().input(|i| i.pointer.hover_pos()) else {
+            return;
+        };
+        if !rect.contains(pos) {
             return;
         }
-        let painter = ui.ctx().layer_painter(egui::LayerId::new(
-            egui::Order::Foreground,
-            Id::new("file_drop"),
-        ));
-        painter.rect_stroke(
-            body.shrink(4.0),
-            CornerRadius::same(8),
-            Stroke::new(2.0, self.chrome.accent),
-            StrokeKind::Inside,
-        );
-        painter.text(
-            body.center(),
-            Align2::CENTER_CENTER,
-            "Insert path",
-            FontId::proportional(16.0),
-            self.chrome.fg,
-        );
+        let drop = drop_for(rect, pos);
+        let is_preview = self.tabs.get(&id).is_some_and(|t| t.preview().is_some());
+        let label = match drop {
+            Drop::Edge(_) if drag.0.is_dir() => "Terminal here",
+            Drop::Edge(_) => "Split",
+            Drop::Center if is_preview && drag.0.is_dir() => return,
+            Drop::Center if is_preview => "Show here",
+            Drop::Center => "Insert path",
+        };
+        self.paint_drop_target(ui, rect, drop, label);
         if ui.ctx().input(|i| i.pointer.any_released()) {
-            actions.push(PaneAction::InsertPath(id, drag.0.clone()));
+            actions.push(PaneAction::DropPath(id, drag.0.clone(), drop));
         }
     }
 
@@ -356,6 +352,20 @@ impl App {
             return;
         }
         let drop = drop_for(rect, pos);
+        let label = if drop == Drop::Center {
+            "Swap"
+        } else {
+            "Split"
+        };
+        self.paint_drop_target(ui, rect, drop, label);
+
+        if ui.ctx().input(|i| i.pointer.any_released()) {
+            actions.push(PaneAction::Drop(drag.0, id, drop));
+        }
+    }
+
+    /// Highlight the half (edge) or whole (center) of pane `rect` a drop would land on.
+    fn paint_drop_target(&self, ui: &Ui, rect: Rect, drop: Drop, label: &str) {
         let target = match drop {
             Drop::Edge(Edge::Left) => {
                 Rect::from_min_max(rect.min, pos2(rect.center().x, rect.bottom()))
@@ -386,11 +396,6 @@ impl App {
             Stroke::new(2.0, self.chrome.accent),
             StrokeKind::Inside,
         );
-        let label = if drop == Drop::Center {
-            "Swap"
-        } else {
-            "Split"
-        };
         painter.text(
             target.center(),
             Align2::CENTER_CENTER,
@@ -398,10 +403,6 @@ impl App {
             FontId::proportional(16.0),
             self.chrome.fg,
         );
-
-        if ui.ctx().input(|i| i.pointer.any_released()) {
-            actions.push(PaneAction::Drop(drag.0, id, drop));
-        }
     }
 
     /// Mouse selection, mouse reporting to applications, and wheel scrolling.

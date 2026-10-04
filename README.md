@@ -4,12 +4,26 @@ A lightweight, GPU-accelerated terminal with a vertical tab sidebar, inspired by
 
 Written in Rust with [egui](https://github.com/emilk/egui) on [wgpu](https://wgpu.rs) (Vulkan / Metal / DX12). Terminal emulation comes from [alacritty_terminal](https://crates.io/crates/alacritty_terminal). No Electron and no webview.
 
+## Why vtt
+
+vtt is a terminal first, built for a CLI-agent-first workflow. It isn't an editor.
+
+- **Many projects at once.** In DevOps work you often have several projects open at the same time, and they are often related: infrastructure, services, pipelines, their configs. Each lives in its own terminal tab or folder of tabs, and vtt is built to keep track of many of them.
+- **Agents do the editing.** Files are rarely edited by hand any more; CLI agents running in terminal tabs do it. What you need is to watch them work: what's running where, which files changed, what's on which branch.
+- **Glance at files without an IDE.** Opening VS Code just to look at a few files, and to get a decent terminal, costs a lot of resources. vtt gives you a file tree, previews, git status and file search next to your terminals, and stops there.
+- **Slim, on purpose.** It's a lightweight native app that sits at about 0% CPU when idle. A feature has to help you run and watch work in terminals. Editing belongs to your agents, or to your own editor running in a pane, never to vtt itself. Where a good command-line tool already exists (like `git`), vtt runs it instead of reimplementing it.
+- **Standard keys.** Shortcuts are the conventional ones, and everything else is in the palette, so vtt doesn't take keys from your shell or tools.
+
+Inspired by Warp, minus the weight: Warp's good ideas (a file tree that follows your shell, git at a glance, previews), with vertical tabs from Zen Browser, kept small.
+
 ## Features
 
 - **Vertical tabs.** The sidebar can be collapsed to an icon strip.
 - **Folders.** Group tabs into named, colored folders that collapse, Zen-style (see [Folders](#folders)).
 - **Files panel.** A file tree of the focused shell's directory sits between the tabs and the terminals, and follows you as you `cd` (see [Files and previews](#files-and-previews)).
 - **File previews.** Click a file to open it in a pane next to the terminal: rendered Markdown, syntax-highlighted code and JSON, images.
+- **Git at a glance.** The files panel shows the branch, commits ahead/behind, and changed files highlighted in green.
+- **File search.** Fuzzy-find any file in the project from the files panel.
 - **Hover a tab** for a moment to see its full working directory and the program running in it.
 - **Auto titles.** A tab shows the title the shell sets, or `<process> · <cwd>` (on Linux and macOS).
 - **Activity indicators.** A dot appears when a background tab prints output, and a badge on a bell or when the process exits.
@@ -53,6 +67,7 @@ On Linux and Windows, vtt only binds the shortcuts terminals conventionally use 
 | Toggle sidebar collapse | — | `⌘B` |
 | Toggle files panel | `Ctrl+Shift+E` | `⌘⇧E` |
 | New folder with the focused tab | — | — |
+| Search files (in the files panel) | — | — |
 | Duplicate tab | — | — |
 
 **Terminal**
@@ -72,7 +87,7 @@ On Linux and Windows, vtt only binds the shortcuts terminals conventionally use 
 
 Every shortcut can be changed in the `[keybindings]` section of the config (see below). Setting an action replaces all of its defaults. Use a list for several chords, and `[]` to unbind it. Modifiers are `ctrl`, `shift`, `alt` and `cmd` (macOS only). Keys are letters, digits, `f1`–`f24`, `tab`, `enter`, `space`, `pageup`, `pagedown`, `home`, `end`, `left`/`right`/`up`/`down`, `plus`, `minus`, `equals`, `[`, `]` and similar.
 
-Actions: `new_tab`, `close_tab`, `reopen_closed_tab`, `duplicate_tab`, `rename_tab`, `split_right`, `split_down`, `minimize_pane`, `toggle_sidebar`, `next_tab`, `prev_tab`, `move_tab_up`, `move_tab_down`, `goto_tab_1` … `goto_tab_9`, `last_tab`, `next_activity`, `command_palette`, `toggle_files`, `new_group`, `open_settings`, `focus_left`, `focus_right`, `focus_up`, `focus_down`, `zoom_in`, `zoom_out`, `zoom_reset`, `scroll_page_up`, `scroll_page_down`.
+Actions: `new_tab`, `close_tab`, `reopen_closed_tab`, `duplicate_tab`, `rename_tab`, `split_right`, `split_down`, `minimize_pane`, `toggle_sidebar`, `next_tab`, `prev_tab`, `move_tab_up`, `move_tab_down`, `goto_tab_1` … `goto_tab_9`, `last_tab`, `next_activity`, `command_palette`, `toggle_files`, `search_files`, `new_group`, `open_settings`, `focus_left`, `focus_right`, `focus_up`, `focus_down`, `zoom_in`, `zoom_out`, `zoom_reset`, `scroll_page_up`, `scroll_page_down`.
 
 ## Files and previews
 
@@ -80,9 +95,14 @@ The files panel (`Ctrl+Shift+E`, `⌘⇧E` on macOS, or 🗀 in the sidebar head
 
 - **Click a folder** to expand it; **double-click** it to `cd` the shell there. If a program is running in the shell, a new tab opens in that folder instead of typing into the program.
 - **Click a file** to preview it in a pane beside the terminal. Clicking other files reuses that pane, so previews don't pile up. Keyboard focus stays in the terminal.
-- **Drag a file** onto a terminal to type its (quoted) path.
+- **Drag a file** onto a pane, like dragging a tab:
+  - Drop it on an **edge** to open it in a new split there, so two files (or a file and a terminal) sit side by side. A folder dropped on an edge opens a terminal in that folder.
+  - Drop it in the **center** of a terminal to type its (quoted) path, or of a preview to show it there instead.
+  - Drop it on the **tab list** to open it as a tab of its own.
 - **Right-click** for: cd into a folder, new tab there, browse there, insert the path, copy the path, open with the default app.
 - The header has ⬆ (browse the parent until the shell changes directory), `.*` (show hidden files) and ⊟ (collapse all).
+- **Git:** inside a repository, the header shows the branch, ⏶/⏷ for commits ahead of/behind its upstream, and how many files changed. Changed and new files, and the folders holding them, are green in the tree (conflicts are red). It runs your own `git` in the background, at most every few seconds and right after a command finishes in the focused shell, and never takes git's index lock, so it won't get in the way of git commands you or an agent run.
+- **Search:** type in the box above the tree (or run "Search files" from the palette) to fuzzy-find any file below the folder. In a repository it searches what git tracks plus new files, skipping ignored ones; elsewhere it skips hidden folders and `node_modules`, `target` and similar. `Up`/`Down` pick a result, `Enter` previews it, `Esc` clears the search. Results can be dragged like files in the tree.
 
 Previews are tabs like any other: drag them, split them, close them, reopen them with "Reopen closed tab" (`⌘⇧T` on macOS). They reload when the file changes on disk.
 
