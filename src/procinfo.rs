@@ -165,7 +165,8 @@ fn short_path(path: &Path, home: Option<&Path>) -> String {
     }
 }
 
-#[cfg(test)]
+// Every test here needs a Unix process to query.
+#[cfg(all(test, unix))]
 mod tests {
     use super::*;
 

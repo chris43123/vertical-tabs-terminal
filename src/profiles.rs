@@ -196,10 +196,10 @@ fn discover() -> Vec<Profile> {
 fn find_git_bash() -> Option<PathBuf> {
     let mut candidates = Vec::new();
     // `git.exe` usually lives in <git>\cmd\git.exe; bash is <git>\bin\bash.exe.
-    if let Some(git) = which("git.exe") {
-        if let Some(root) = git.parent().and_then(Path::parent) {
-            candidates.push(root.join("bin").join("bash.exe"));
-        }
+    if let Some(git) = which("git.exe")
+        && let Some(root) = git.parent().and_then(Path::parent)
+    {
+        candidates.push(root.join("bin").join("bash.exe"));
     }
     for var in [
         "ProgramFiles",
@@ -238,8 +238,10 @@ fn wsl_distros() -> Vec<String> {
     // wsl.exe prints UTF-16LE.
     let units: Vec<u16> = out
         .stdout
-        .chunks_exact(2)
-        .map(|b| u16::from_le_bytes([b[0], b[1]]))
+        .as_chunks::<2>()
+        .0
+        .iter()
+        .map(|&b| u16::from_le_bytes(b))
         .collect();
     String::from_utf16_lossy(&units)
         .lines()

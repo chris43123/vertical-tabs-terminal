@@ -407,6 +407,7 @@ fn default_specs(macos: bool) -> Vec<(String, Action)> {
 mod tests {
     use super::*;
 
+    #[cfg(not(target_os = "macos"))]
     fn mods(ctrl: bool, shift: bool, alt: bool) -> Modifiers {
         Modifiers {
             ctrl,
@@ -417,6 +418,7 @@ mod tests {
         }
     }
 
+    #[cfg(not(target_os = "macos"))]
     impl Keybinds {
         fn lookup_l(&self, key: Key, m: Modifiers) -> Option<Action> {
             self.lookup(key, None, m)
