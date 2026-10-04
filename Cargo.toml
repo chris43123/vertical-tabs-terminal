@@ -15,6 +15,12 @@ serde = { version = "1", features = ["derive"] }
 toml = "1"
 dirs = "7"
 epaint_default_fonts = "0.36"
+egui_commonmark = { version = "0.25", default-features = false, features = ["pulldown_cmark", "better_syntax_highlighting", "load-images"] }
+syntect = { version = "5.3", default-features = false, features = ["default-fancy"] }
+egui_extras = { version = "0.36", default-features = false, features = ["image", "file"] }
+image = { version = "0.25", default-features = false, features = ["png", "jpeg", "gif", "webp"] }
+serde_json = { version = "1", features = ["preserve_order"] }
+pulldown-cmark = { version = "0.13", default-features = false }
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"

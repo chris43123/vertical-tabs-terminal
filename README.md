@@ -7,6 +7,10 @@ Written in Rust with [egui](https://github.com/emilk/egui) on [wgpu](https://wgp
 ## Features
 
 - **Vertical tabs.** The sidebar can be collapsed to an icon strip.
+- **Folders.** Group tabs into named, colored folders that collapse, Zen-style (see [Folders](#folders)).
+- **Files panel.** A file tree of the focused shell's directory sits between the tabs and the terminals, and follows you as you `cd` (see [Files and previews](#files-and-previews)).
+- **File previews.** Click a file to open it in a pane next to the terminal: rendered Markdown, syntax-highlighted code and JSON, images.
+- **Hover a tab** for a moment to see its full working directory and the program running in it.
 - **Auto titles.** A tab shows the title the shell sets, or `<process> · <cwd>` (on Linux and macOS).
 - **Activity indicators.** A dot appears when a background tab prints output, and a badge on a bell or when the process exits.
 - **Multiple shells.** Shells are auto-discovered:
@@ -16,40 +20,40 @@ Written in Rust with [egui](https://github.com/emilk/egui) on [wgpu](https://wgp
 - **Splits.** Drag a tab from the sidebar onto a pane:
   - Drop on an **edge** (left / right / top / bottom) to split that pane.
   - Drop in the **center** to swap the tab into that pane.
-  - Each pane in a split has a header with `─` to **minimise** it (the pane goes back to being a standalone tab and the session stays alive) and `×` to **close** it.
+  - Each pane in a split has a header with `—` to **minimise** it (the pane goes back to being a standalone tab and the session stays alive) and `×` to **close** it.
   - Drag the dividers to resize panes.
 - **Small footprint.** The app redraws only when something changes, so it uses about 0% CPU when idle.
 - Runs on Linux (Wayland/X11), Windows (ConPTY) and macOS.
 
 ## Keybindings
 
-vtt is built to be driven from the keyboard. On Linux and Windows the app shortcuts use **Alt**, the key in the same spot as Cmd on a Mac. Alt+B, Alt+D and Alt+F are left alone because shells use them to move and delete by word.
+On Linux and Windows, vtt only binds the shortcuts terminals conventionally use (`Ctrl+Shift+T`, `Ctrl+Tab`, …). Alt chords are left to your shell. Every other action is in the command palette, and you can give it a key in the config (see below). On macOS, the usual ⌘ shortcuts are bound. In the tables, "—" means no default.
 
 **Moving around**
 
 | Action | Linux / Windows | macOS |
 |---|---|---|
-| Tab switcher / command palette | `Alt+P` (also `Ctrl+Shift+P`) | `⌘P` |
-| Next / previous tab (in sidebar order, including split panes) | `Alt+Down` / `Alt+Up` | `⌘↓` / `⌘↑` |
-| Jump to tab 1–8 / last tab | `Alt+1` … `Alt+8` / `Alt+9` | `⌘1` … `⌘8` / `⌘9` |
-| Go to next tab with new output or a bell | `Alt+A` | `⌘⇧A` |
-| Focus pane left / right | `Alt+Left` / `Alt+Right` | `⌘⌥←` / `⌘⌥→` |
-| Focus pane above / below | `Ctrl+Alt+Up` / `Ctrl+Alt+Down` | `⌘⌥↑` / `⌘⌥↓` |
-| Also next / previous tab | `Ctrl+Tab` / `Ctrl+Shift+Tab`, `Ctrl+PageDown` / `Ctrl+PageUp` | same, plus `⌘⇧]` / `⌘⇧[` |
+| Tab switcher / command palette | `Ctrl+Shift+P` | `⌘P` / `⌘⇧P` |
+| Next / previous tab (in sidebar order, including split panes) | `Ctrl+Tab` / `Ctrl+Shift+Tab`, `Ctrl+PageDown` / `Ctrl+PageUp` | same, plus `⌘↓` / `⌘↑` and `⌘⇧]` / `⌘⇧[` |
+| Jump to tab 1–8 / last tab | — | `⌘1` … `⌘8` / `⌘9` |
+| Go to next tab with new output or a bell | — | `⌘⇧A` |
+| Focus pane left / right / up / down | — | `⌘⌥←` / `⌘⌥→` / `⌘⌥↑` / `⌘⌥↓` |
 
 **Managing tabs**
 
 | Action | Linux / Windows | macOS |
 |---|---|---|
-| New tab | `Alt+T` (also `Ctrl+Shift+T`) | `⌘T` |
-| Close tab | `Alt+W` (also `Ctrl+Shift+W`) | `⌘W` |
-| Reopen closed tab (same shell, folder, name and position) | `Alt+Shift+T` | `⌘⇧T` |
-| Rename tab | `Alt+R` | `⌘R` |
-| Move tab (or its split group) up / down | `Alt+Shift+Up` / `Alt+Shift+Down` | `⌘⇧↑` / `⌘⇧↓` |
-| Split right / down with a new tab | `Alt+Shift+D` / `Alt+Shift+E` | `⌘D` / `⌘⇧D` |
-| Minimise pane back to its own tab | `Alt+M` | `⌘⇧M` |
-| Toggle sidebar collapse | `Alt+Shift+B` | `⌘B` |
-| Duplicate tab | unbound (palette or right-click) | same |
+| New tab | `Ctrl+Shift+T` | `⌘T` |
+| Close tab | `Ctrl+Shift+W` | `⌘W` |
+| Reopen closed tab (same shell, folder, name and position) | — | `⌘⇧T` |
+| Rename tab | — | `⌘R` |
+| Move tab (or its split group) up / down | — | `⌘⇧↑` / `⌘⇧↓` |
+| Split right / down with a new tab | — | `⌘D` / `⌘⇧D` |
+| Minimise pane back to its own tab | — | `⌘⇧M` |
+| Toggle sidebar collapse | — | `⌘B` |
+| Toggle files panel | `Ctrl+Shift+E` | `⌘⇧E` |
+| New folder with the focused tab | — | — |
+| Duplicate tab | — | — |
 
 **Terminal**
 
@@ -57,18 +61,45 @@ vtt is built to be driven from the keyboard. On Linux and Windows the app shortc
 |---|---|---|
 | Font zoom in / out / reset | `Ctrl+=` / `Ctrl+-` / `Ctrl+0` | `⌘=` / `⌘-` / `⌘0` |
 | Scroll back | `Shift+PageUp` / `Shift+PageDown` | same |
-| Open settings file | `Alt+,` | `⌘,` |
+| Open settings file | `Ctrl+,` | `⌘,` |
 | Copy / paste | `Ctrl+Shift+C` / `Ctrl+Shift+V`, plus `Ctrl+V` | `⌘C` / `⌘V` |
 
 `Ctrl+C` copies when text is selected; otherwise it sends an interrupt as usual. Pane-focus and next/previous-tab keys pass through to the shell when there is nothing to move to (a single tab, or no pane in that direction).
 
-**The palette** (`Alt+P`) fuzzy-searches your tabs, every command (each shown with its shortcut, so it doubles as a cheat sheet) and "new tab with profile X".
-- It opens with your previously focused tab selected, so `Alt+P`, `Enter` flips between two tabs.
+**The palette** (`Ctrl+Shift+P`) fuzzy-searches your tabs, every command (each shown with its shortcut, so it doubles as a cheat sheet) and "new tab with profile X".
+- It opens with your previously focused tab selected, so `Ctrl+Shift+P`, `Enter` flips between two tabs.
 - Move with `Up`/`Down`, `Tab`/`Shift+Tab` or `Ctrl+N`/`Ctrl+P`; `Enter` picks and `Esc` closes.
 
 Every shortcut can be changed in the `[keybindings]` section of the config (see below). Setting an action replaces all of its defaults. Use a list for several chords, and `[]` to unbind it. Modifiers are `ctrl`, `shift`, `alt` and `cmd` (macOS only). Keys are letters, digits, `f1`–`f24`, `tab`, `enter`, `space`, `pageup`, `pagedown`, `home`, `end`, `left`/`right`/`up`/`down`, `plus`, `minus`, `equals`, `[`, `]` and similar.
 
-Actions: `new_tab`, `close_tab`, `reopen_closed_tab`, `duplicate_tab`, `rename_tab`, `split_right`, `split_down`, `minimize_pane`, `toggle_sidebar`, `next_tab`, `prev_tab`, `move_tab_up`, `move_tab_down`, `goto_tab_1` … `goto_tab_9`, `last_tab`, `next_activity`, `command_palette`, `focus_left`, `focus_right`, `focus_up`, `focus_down`, `zoom_in`, `zoom_out`, `zoom_reset`, `scroll_page_up`, `scroll_page_down`.
+Actions: `new_tab`, `close_tab`, `reopen_closed_tab`, `duplicate_tab`, `rename_tab`, `split_right`, `split_down`, `minimize_pane`, `toggle_sidebar`, `next_tab`, `prev_tab`, `move_tab_up`, `move_tab_down`, `goto_tab_1` … `goto_tab_9`, `last_tab`, `next_activity`, `command_palette`, `toggle_files`, `new_group`, `open_settings`, `focus_left`, `focus_right`, `focus_up`, `focus_down`, `zoom_in`, `zoom_out`, `zoom_reset`, `scroll_page_up`, `scroll_page_down`.
+
+## Files and previews
+
+The files panel (`Ctrl+Shift+E`, `⌘⇧E` on macOS, or 🗀 in the sidebar header) shows the directory of the focused shell. When you `cd`, it follows. Switching tabs shows that tab's directory.
+
+- **Click a folder** to expand it; **double-click** it to `cd` the shell there. If a program is running in the shell, a new tab opens in that folder instead of typing into the program.
+- **Click a file** to preview it in a pane beside the terminal. Clicking other files reuses that pane, so previews don't pile up. Keyboard focus stays in the terminal.
+- **Drag a file** onto a terminal to type its (quoted) path.
+- **Right-click** for: cd into a folder, new tab there, browse there, insert the path, copy the path, open with the default app.
+- The header has ⬆ (browse the parent until the shell changes directory), `.*` (show hidden files) and ⊟ (collapse all).
+
+Previews are tabs like any other: drag them, split them, close them, reopen them with "Reopen closed tab" (`⌘⇧T` on macOS). They reload when the file changes on disk.
+
+- **Markdown** renders with headings, lists, tables, links, local images, and highlighted code blocks. **Source** in the preview toolbar shows the raw text.
+- **Code and text** are syntax-highlighted in your theme's colors, with line numbers. Long lines wrap at word boundaries so narrow panes stay readable; **Wrap** in the toolbar switches that off (and `wrap = false` under `[files]` makes it the default). That covers Rust, Python, JS/TS, Go, C/C++, shell, TOML, YAML, JSON and many more. Minified JSON is reformatted for reading.
+- **Images** (PNG, JPEG, GIF, WebP) are shown fitted to the pane.
+- Binary and very large files show their size and a button to open them with the default app.
+
+## Folders
+
+Folders group tabs in the sidebar, like folders in Zen Browser.
+
+- Right-click a tab and pick **New folder with tab** (or run it from the palette), then type a name.
+- Click a folder's header to collapse or expand it. A collapsed folder still shows the tab you're on, plus how many tabs it holds and a dot if one of them has new output.
+- To add a tab to a folder, drag it onto the folder's header or between its tabs, or use **Move to folder**. Drag a tab out (or use **Remove from folder**) to take it out.
+- New tabs opened from a tab in a folder join that folder. A split view always moves as a unit.
+- Right-click a folder's header to rename it, change its color, open a new tab in it, ungroup it, or close all its tabs.
 
 ## Building
 
@@ -94,7 +125,7 @@ Config file location:
 - macOS: `~/Library/Application Support/vtt/config.toml`
 - Windows: `%APPDATA%\vtt\config.toml`
 
-The easiest way in is **Open settings**: press `Alt+,` (`⌘,` on macOS), click ⚙ in the sidebar header, or pick it from the palette.
+The easiest way in is **Open settings**: press `Ctrl+,` (`⌘,` on macOS), click ⚙ in the sidebar header, or pick it from the palette.
 - If the file doesn't exist yet, it's created from the commented example below.
 - It opens in a new tab running your editor (the `editor` setting, `$VISUAL` or `$EDITOR`), and the tab closes when you quit the editor.
 - Without an editor configured, it opens in your system's default text editor.
@@ -134,7 +165,7 @@ sidebar_collapsed = false
 # this for every open terminal), apply them to the whole app instead of just that tab.
 adopt_shell_palette = false
 
-# Editor for "Open settings" (Alt+,). Defaults to $VISUAL / $EDITOR, then the system's default app.
+# Editor for "Open settings" (Ctrl+,). Defaults to $VISUAL / $EDITOR, then the system's default app.
 # Terminal editors open in a new vtt tab.
 # editor = "nvim"
 
@@ -142,6 +173,16 @@ adopt_shell_palette = false
 # Font family; defaults to the system monospace font.
 # family = "JetBrains Mono"
 size = 14.0
+
+[files]
+# Show the files panel (between the tabs and the terminals) at startup. Toggle: Ctrl+Shift+E.
+open = false
+# Initial width in logical pixels; drag the panel's edge to resize.
+width = 260.0
+# List dotfiles (and hidden files on Windows).
+show_hidden = false
+# Wrap long lines in text and code previews (toggle with "Wrap" in the preview's toolbar).
+wrap = true
 
 # Inline color overrides, applied on top of the theme. Same keys as a theme file:
 # foreground, background, cursor, selection, ansi = [16 colors], colorN (any index 0-255),
@@ -158,6 +199,8 @@ size = 14.0
 # prev_tab = ["ctrl+shift+tab", "alt+k"]
 # close_tab = []                           # unbind
 # duplicate_tab = "alt+shift+n"            # unbound by default
+# new_group = "alt+g"                      # unbound by default
+# goto_tab_1 = "alt+1"                     # Linux/Windows: most actions are unbound
 
 # Extra profiles, added after the auto-discovered shells.
 # A profile with the same name as a discovered one replaces it.

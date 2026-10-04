@@ -1,7 +1,8 @@
 //! Application state: tabs, their sessions, the split workspace and event routing.
 
 use std::collections::HashMap;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
+use std::sync::Arc;
 use std::sync::mpsc::{Receiver, Sender, channel};
 use std::time::{Duration, Instant};
 
@@ -11,8 +12,11 @@ use alacritty_terminal::vte::ansi::Rgb;
 use eframe::egui::{self, Color32, Key, Modifiers};
 
 use crate::config::Config;
+use crate::files::FileTree;
+use crate::highlight::Highlighter;
 use crate::keybinds::{Action, Keybinds};
-use crate::layout::{Drop, Edge, Workspace};
+use crate::layout::{Drop, Edge, GroupId, Workspace};
+use crate::preview::Preview;
 use crate::procinfo;
 use crate::profiles::{self, Profile};
 use crate::render::{Fonts, Palette};
@@ -20,8 +24,15 @@ use crate::session::{GridSize, Session, TabId};
 use crate::theme::{self, Patch, Theme, UiColors, mix};
 use crate::watch::Watcher;
 
+/// What a tab shows: a shell, or a read-only file preview.
+pub enum Content {
+    Term(Session),
+    Preview(Box<Preview>),
+}
+
 pub struct Tab {
-    pub session: Session,
+    pub content: Content,
+    /// For previews: a synthetic profile carrying the file name and type icon.
     pub profile: Profile,
     /// Title set by the application via OSC 0/2.
     pub osc_title: Option<String>,
@@ -35,9 +46,61 @@ pub struct Tab {
     pub bell: bool,
     /// Last cwd seen, used to start new tabs in the same directory.
     pub cwd: Option<PathBuf>,
+    /// Foreground process name, from the last poll.
+    pub process: Option<String>,
 }
 
 impl Tab {
+    fn new(content: Content, profile: Profile) -> Self {
+        Self {
+            content,
+            profile,
+            osc_title: None,
+            auto_title: None,
+            custom_title: None,
+            activity: false,
+            bell: false,
+            cwd: None,
+            process: None,
+        }
+    }
+
+    pub fn session(&self) -> Option<&Session> {
+        match &self.content {
+            Content::Term(s) => Some(s),
+            Content::Preview(_) => None,
+        }
+    }
+
+    pub fn session_mut(&mut self) -> Option<&mut Session> {
+        match &mut self.content {
+            Content::Term(s) => Some(s),
+            Content::Preview(_) => None,
+        }
+    }
+
+    pub fn preview(&self) -> Option<&Preview> {
+        match &self.content {
+            Content::Preview(p) => Some(p),
+            Content::Term(_) => None,
+        }
+    }
+
+    pub fn preview_mut(&mut self) -> Option<&mut Preview> {
+        match &mut self.content {
+            Content::Preview(p) => Some(p),
+            Content::Term(_) => None,
+        }
+    }
+
+    /// Directory the tab is "in": the shell's cwd, or a previewed file's folder.
+    pub fn dir(&self) -> Option<&Path> {
+        match &self.content {
+            Content::Term(_) => self.cwd.as_deref(),
+            Content::Preview(p) => p.path.parent(),
+        }
+    }
+
     pub fn title(&self) -> &str {
         self.custom_title
             .as_deref()
@@ -53,6 +116,15 @@ struct ClosedTab {
     cwd: Option<PathBuf>,
     custom_title: Option<String>,
     index: usize,
+    /// Set for a closed preview: the file it showed.
+    preview: Option<PathBuf>,
+}
+
+/// What the sidebar's inline rename box is editing.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum RenameTarget {
+    Tab(TabId),
+    Group(GroupId),
 }
 
 const MAX_CLOSED: usize = 20;
@@ -87,8 +159,8 @@ pub struct App {
     pub sidebar_collapsed: bool,
     /// Collapsed sidebar temporarily shown expanded because the pointer hovers it.
     pub sidebar_peek: bool,
-    /// Tab currently being renamed, with the edit buffer.
-    pub renaming: Option<(TabId, String)>,
+    /// Tab or folder currently being renamed, with the edit buffer.
+    pub renaming: Option<(RenameTarget, String)>,
     /// Pane rects of the active view from the last frame (for directional pane focus).
     pub pane_rects: Vec<(TabId, egui::Rect)>,
     /// Sub-line scroll accumulator in points.
@@ -108,6 +180,24 @@ pub struct App {
     /// Config/theme problems shown in the banner until fixed or dismissed.
     pub problems: Vec<String>,
     pub problems_dismissed: bool,
+
+    /// The files panel between the sidebar and the panes.
+    pub files_open: bool,
+    pub files: FileTree,
+    /// The cwd the tree last followed; the user may browse elsewhere until it changes.
+    pub(crate) files_followed: Option<PathBuf>,
+    /// Soft-wrap long lines in text and code previews.
+    pub preview_wrap: bool,
+    last_cwd_check: Instant,
+    /// Loaded on first use: syntax definitions are a few MB.
+    highlighter: Option<Arc<Highlighter>>,
+    /// Code colors generated from the palette, and a counter bumped when they change.
+    pub syntax_theme: Arc<syntect::highlighting::Theme>,
+    pub syntax_theme_xml: String,
+    pub theme_generation: u64,
+    pub md_cache: Option<egui_commonmark::CommonMarkCache>,
+    /// Theme generation the markdown cache's code theme was registered for.
+    pub md_theme_generation: u64,
 }
 
 impl App {
@@ -129,6 +219,12 @@ impl App {
         );
         let (tx, rx) = channel();
         let keybinds = Keybinds::new(&config.keybindings);
+        egui_extras::install_image_loaders(&ctx);
+        let syntax_theme_xml = crate::highlight::tm_theme(&palette);
+        let mut files = FileTree::default();
+        files.show_hidden = config.files.show_hidden;
+        let files_open = config.files.open;
+        let preview_wrap = config.files.wrap;
 
         let mut app = Self {
             profiles: profiles::load(&config),
@@ -162,6 +258,19 @@ impl App {
             window_title: String::new(),
             problems: Vec::new(),
             problems_dismissed: false,
+            files_open,
+            preview_wrap,
+            files,
+            files_followed: None,
+            last_cwd_check: Instant::now(),
+            highlighter: None,
+            syntax_theme: Arc::new(
+                crate::highlight::load_theme(&syntax_theme_xml).unwrap_or_default(),
+            ),
+            syntax_theme_xml,
+            theme_generation: 1,
+            md_cache: None,
+            md_theme_generation: 0,
         };
         app.new_tab(0, None);
         app
@@ -176,15 +285,20 @@ impl App {
             .or(self.profiles.first())?
             .clone();
         // Start in the focused tab's directory, like most terminals do.
-        let cwd = self
-            .ws
-            .focused()
-            .and_then(|f| self.tabs.get_mut(&f))
-            .and_then(|t| {
-                t.cwd = query_proc(&t.session).cwd.or(t.cwd.take());
-                t.cwd.clone()
-            });
+        let cwd = self.ws.focused().and_then(|f| self.focused_dir(f));
         self.spawn_tab(profile, cwd, split)
+    }
+
+    /// Fresh directory of tab `id` (re-queried for a shell).
+    fn focused_dir(&mut self, id: TabId) -> Option<PathBuf> {
+        let tab = self.tabs.get_mut(&id)?;
+        if let Some(session) = tab.session() {
+            let cwd = query_proc(session).cwd;
+            if cwd.is_some() {
+                tab.cwd = cwd;
+            }
+        }
+        tab.dir().map(Path::to_path_buf)
     }
 
     fn spawn_tab(
@@ -218,19 +332,8 @@ impl App {
                 return None;
             }
         };
-        self.tabs.insert(
-            id,
-            Tab {
-                session,
-                profile,
-                osc_title: None,
-                auto_title: None,
-                custom_title: None,
-                activity: false,
-                bell: false,
-                cwd: None,
-            },
-        );
+        self.tabs
+            .insert(id, Tab::new(Content::Term(session), profile));
         self.ws.add(id, focused);
         if let (Some(edge), Some(target)) = (split, focused) {
             self.ws.drop_on(id, target, Drop::Edge(edge));
@@ -243,9 +346,13 @@ impl App {
         if let Some(tab) = self.tabs.get(&id) {
             self.closed.push(ClosedTab {
                 profile: tab.profile.clone(),
-                cwd: query_proc(&tab.session).cwd.or(tab.cwd.clone()),
+                cwd: tab
+                    .session()
+                    .and_then(|s| query_proc(s).cwd)
+                    .or(tab.cwd.clone()),
                 custom_title: tab.custom_title.clone(),
                 index: self.ws.order.iter().position(|t| *t == id).unwrap_or(0),
+                preview: tab.preview().map(|p| p.path.clone()),
             });
             if self.closed.len() > MAX_CLOSED {
                 self.closed.remove(0);
@@ -253,7 +360,11 @@ impl App {
         }
         self.ws.close(id);
         self.tabs.remove(&id);
-        if self.renaming.as_ref().is_some_and(|(r, _)| *r == id) {
+        if self
+            .renaming
+            .as_ref()
+            .is_some_and(|(r, _)| *r == RenameTarget::Tab(id))
+        {
             self.renaming = None;
         }
         self.scroll_to_focused = true;
@@ -265,7 +376,11 @@ impl App {
         let Some(closed) = self.closed.pop() else {
             return;
         };
-        if let Some(id) = self.spawn_tab(closed.profile, closed.cwd, None) {
+        let id = match closed.preview {
+            Some(path) => self.spawn_preview(path, None),
+            None => self.spawn_tab(closed.profile, closed.cwd, None),
+        };
+        if let Some(id) = id {
             if let Some(tab) = self.tabs.get_mut(&id) {
                 tab.custom_title = closed.custom_title;
             }
@@ -277,6 +392,11 @@ impl App {
         let Some(tab) = self.tabs.get(&id) else {
             return;
         };
+        if let Some(p) = tab.preview() {
+            let path = p.path.clone();
+            self.spawn_preview(path, None);
+            return;
+        }
         let idx = self
             .profiles
             .iter()
@@ -293,11 +413,91 @@ impl App {
             .get(&id)
             .map(|t| t.title().to_string())
             .unwrap_or_default();
-        self.renaming = Some((id, current));
+        self.renaming = Some((RenameTarget::Tab(id), current));
         self.scroll_to_focused = true;
         if self.sidebar_collapsed {
             self.sidebar_peek = true;
         }
+    }
+
+    /// Put tab `id` into a new folder and start naming it.
+    pub fn new_group(&mut self, id: TabId) {
+        let name = format!("Group {}", self.ws.groups.len() + 1);
+        if let Some(g) = self.ws.new_group(id, name.clone()) {
+            self.renaming = Some((RenameTarget::Group(g), name));
+            if self.sidebar_collapsed {
+                self.sidebar_peek = true;
+            }
+        }
+    }
+
+    /// Close every tab in a folder.
+    pub fn close_group(&mut self, group: GroupId) {
+        for id in self.ws.members(group) {
+            self.close_tab(id);
+        }
+    }
+
+    /// Show `path` in a preview pane next to the focused terminal. A preview already in the
+    /// active view is reused, so clicking through files doesn't pile up panes. Keyboard focus
+    /// stays where it was.
+    pub fn open_preview(&mut self, path: PathBuf) {
+        let visible = self.ws.visible();
+        let existing = visible
+            .iter()
+            .copied()
+            .find(|id| self.tabs.get(id).is_some_and(|t| t.preview().is_some()));
+        if let Some(id) = existing {
+            let preview = Preview::open(path, &self.highlighter());
+            if let Some(tab) = self.tabs.get_mut(&id) {
+                tab.profile = preview_profile(&preview);
+                tab.custom_title = None;
+                tab.content = Content::Preview(Box::new(preview));
+            }
+            return;
+        }
+        let focused = self.ws.focused();
+        let edge = self.preview_edge();
+        if let Some(id) = self.spawn_preview(path, focused.map(|f| (f, edge)))
+            && let Some(f) = focused
+        {
+            // The new pane is on screen; keep typing into the terminal.
+            if self.ws.view_of(id) == self.ws.view_of(f) {
+                self.ws.activate(f);
+            }
+        }
+    }
+
+    /// Split right, or down when the focused pane is too narrow for two columns.
+    fn preview_edge(&self) -> Edge {
+        let focused = self.ws.focused();
+        match self.pane_rects.iter().find(|(t, _)| Some(*t) == focused) {
+            Some((_, r)) if r.width() < 700.0 && r.height() > r.width() * 0.8 => Edge::Bottom,
+            _ => Edge::Right,
+        }
+    }
+
+    /// Open a preview tab, standalone or split next to `split.0` on edge `split.1`.
+    fn spawn_preview(&mut self, path: PathBuf, split: Option<(TabId, Edge)>) -> Option<TabId> {
+        let preview = Preview::open(path, &self.highlighter());
+        let id = self.next_id;
+        self.next_id += 1;
+        let after = split.map(|(t, _)| t).or(self.ws.focused());
+        let profile = preview_profile(&preview);
+        self.tabs
+            .insert(id, Tab::new(Content::Preview(Box::new(preview)), profile));
+        self.ws.add(id, after);
+        if let Some((target, edge)) = split {
+            self.ws.drop_on(id, target, Drop::Edge(edge));
+        }
+        self.scroll_to_focused = true;
+        Some(id)
+    }
+
+    pub fn highlighter(&mut self) -> Arc<Highlighter> {
+        self.highlighter
+            .get_or_insert_with(|| Arc::new(Highlighter::new()))
+            .clone()
     }
 
     /// Jump to the next tab (after the focused one, wrapping) that has a bell or unread output.
@@ -359,7 +559,8 @@ impl App {
                 }
                 TermEvent::Title(t) => tab.osc_title = Some(t),
                 TermEvent::ResetTitle => tab.osc_title = None,
-                TermEvent::PtyWrite(s) => tab.session.write(s.into_bytes()),
+                _ if tab.session().is_none() => {}
+                TermEvent::PtyWrite(s) => tab.session().unwrap().write(s.into_bytes()),
                 TermEvent::ClipboardStore(_, text) => {
                     if let Some(cb) = &mut self.clipboard {
                         let _ = cb.set_text(text);
@@ -367,7 +568,7 @@ impl App {
                 }
                 TermEvent::ClipboardLoad(_, format) => {
                     if let Some(text) = self.clipboard.as_mut().and_then(|cb| cb.get_text().ok()) {
-                        tab.session.write(format(&text).into_bytes());
+                        tab.session().unwrap().write(format(&text).into_bytes());
                     }
                 }
                 TermEvent::ColorRequest(index, format) => {
@@ -376,26 +577,28 @@ impl App {
                         257 => Some(self.palette.background()),
                         _ => None,
                     };
-                    let from_term = tab.session.term.lock().colors()[index];
+                    let session = tab.session().unwrap();
+                    let from_term = session.term.lock().colors()[index];
                     let rgb = from_term.or(color.map(|c| Rgb {
                         r: c.r(),
                         g: c.g(),
                         b: c.b(),
                     }));
                     if let Some(rgb) = rgb {
-                        tab.session.write(format(rgb).into_bytes());
+                        session.write(format(rgb).into_bytes());
                     }
                 }
                 TermEvent::TextAreaSizeRequest(format) => {
                     let (cw, ch) = self.fonts.cell_px();
-                    let size = tab.session.size;
+                    let session = tab.session().unwrap();
+                    let size = session.size;
                     let ws = WindowSize {
                         num_lines: size.lines as u16,
                         num_cols: size.cols as u16,
                         cell_width: cw,
                         cell_height: ch,
                     };
-                    tab.session.write(format(ws).into_bytes());
+                    session.write(format(ws).into_bytes());
                 }
                 TermEvent::ChildExit(_) | TermEvent::Exit => exited.push(id),
                 TermEvent::MouseCursorDirty | TermEvent::CursorBlinkingChange => {}
@@ -405,6 +608,15 @@ impl App {
             if self.tabs.contains_key(&id) {
                 self.close_tab(id);
             }
+        }
+        // A `cd` is followed by a new prompt, so the focused shell printing is the moment to
+        // check whether its cwd moved. Throttled, since output can arrive every frame.
+        if self.files_open
+            && focused.is_some_and(|f| woke.contains(&f))
+            && self.last_cwd_check.elapsed() >= Duration::from_millis(150)
+        {
+            self.last_cwd_check = Instant::now();
+            self.follow_cwd();
         }
         if self.config.adopt_shell_palette {
             self.adopt_shell_colors(&woke);
@@ -417,10 +629,10 @@ impl App {
     fn adopt_shell_colors(&mut self, woke: &[TabId]) {
         let mut adopted = false;
         for id in woke {
-            let Some(tab) = self.tabs.get(id) else {
+            let Some(session) = self.tabs.get(id).and_then(Tab::session) else {
                 continue;
             };
-            let patch = theme::patch_from_osc(tab.session.term.lock().colors());
+            let patch = theme::patch_from_osc(session.term.lock().colors());
             if patch.is_empty() {
                 continue;
             }
@@ -438,6 +650,11 @@ impl App {
     fn set_theme(&mut self, theme: &Theme) {
         self.palette = Palette::from_theme(theme);
         self.chrome = UiColors::from_theme(theme);
+        self.syntax_theme_xml = crate::highlight::tm_theme(&self.palette);
+        if let Some(t) = crate::highlight::load_theme(&self.syntax_theme_xml) {
+            self.syntax_theme = Arc::new(t);
+        }
+        self.theme_generation += 1;
         apply_style(&self.ctx, &self.chrome);
         self.ctx.request_repaint();
     }
@@ -445,8 +662,8 @@ impl App {
     /// Clear per-tab OSC color overrides so tabs render from the app theme.
     fn reset_tab_colors(&self) {
         use alacritty_terminal::vte::ansi::Handler;
-        for tab in self.tabs.values() {
-            let mut term = tab.session.term.lock();
+        for session in self.tabs.values().filter_map(Tab::session) {
+            let mut term = session.term.lock();
             for i in 0..alacritty_terminal::term::color::COUNT {
                 term.reset_color(i);
             }
@@ -484,6 +701,15 @@ impl App {
         }
         if new.sidebar_collapsed != old.sidebar_collapsed {
             self.sidebar_collapsed = new.sidebar_collapsed;
+        }
+        if new.files.open != old.files.open {
+            self.files_open = new.files.open;
+        }
+        if new.files.wrap != old.files.wrap {
+            self.preview_wrap = new.files.wrap;
+        }
+        if new.files.show_hidden != old.files.show_hidden {
+            self.files.show_hidden = new.files.show_hidden;
         }
 
         let resolved = theme::resolve(&self.config);
@@ -545,28 +771,125 @@ impl App {
         use alacritty_terminal::vte::ansi::NamedColor;
         self.tabs
             .get(&id)
-            .and_then(|t| t.session.term.lock().colors()[NamedColor::Background])
+            .and_then(Tab::session)
+            .and_then(|s| s.term.lock().colors()[NamedColor::Background])
             .map(|c| Color32::from_rgb(c.r, c.g, c.b))
             .unwrap_or(self.palette.background())
     }
 
-    /// Refresh auto titles about once a second while titles are visible.
-    fn poll_titles(&mut self) {
+    /// About once a second while they're on screen: refresh auto titles, re-list changed
+    /// folders in the files panel, and reload previews whose file changed.
+    fn poll(&mut self) {
         let sidebar_visible = !self.sidebar_collapsed || self.sidebar_peek;
-        if !sidebar_visible {
+        let visible = self.ws.visible();
+        let previews_visible = visible
+            .iter()
+            .any(|id| self.tabs.get(id).is_some_and(|t| t.preview().is_some()));
+        if !sidebar_visible && !self.files_open && !previews_visible {
             return;
         }
         if self.last_poll.elapsed() >= Duration::from_secs(1) {
             self.last_poll = Instant::now();
-            for tab in self.tabs.values_mut() {
-                let info = query_proc(&tab.session);
-                tab.auto_title = procinfo::format_title(&info);
-                if info.cwd.is_some() {
-                    tab.cwd = info.cwd;
+            if sidebar_visible {
+                for tab in self.tabs.values_mut() {
+                    let Some(session) = tab.session() else {
+                        continue;
+                    };
+                    let info = query_proc(session);
+                    tab.auto_title = procinfo::format_title(&info);
+                    tab.process = info.process;
+                    if info.cwd.is_some() {
+                        tab.cwd = info.cwd;
+                    }
+                }
+            }
+            if self.files_open {
+                self.follow_cwd();
+                self.files.refresh();
+            }
+            if previews_visible {
+                let hl = self.highlighter();
+                for id in &visible {
+                    if let Some(p) = self.tabs.get_mut(id).and_then(Tab::preview_mut)
+                        && p.reload_if_changed(&hl)
+                        && matches!(p.body, crate::preview::Body::Image)
+                    {
+                        self.ctx.forget_image(&crate::ui::file_uri(&p.path));
+                    }
                 }
             }
         }
         self.ctx.request_repaint_after(Duration::from_secs(1));
+    }
+
+    /// Point the files panel at the focused shell's cwd when it changes (after `cd`).
+    /// Previews don't move the tree, so clicking through files keeps your place.
+    fn follow_cwd(&mut self) {
+        let Some(id) = self.ws.focused() else { return };
+        let Some(tab) = self.tabs.get_mut(&id) else {
+            return;
+        };
+        let Some(session) = tab.session() else {
+            return;
+        };
+        if let Some(cwd) = query_proc(session).cwd {
+            tab.cwd = Some(cwd);
+        }
+        let Some(cwd) = tab.cwd.clone() else { return };
+        if self.files_followed.as_ref() != Some(&cwd) || self.files.root().is_none() {
+            self.files.set_root(cwd.clone());
+            self.files_followed = Some(cwd);
+        }
+    }
+
+    /// Browse the files panel somewhere else (until the shell's cwd changes again).
+    pub fn browse_files(&mut self, dir: PathBuf) {
+        self.files.set_root(dir);
+    }
+
+    /// The terminal that file actions type into: the focused pane, or else another terminal
+    /// pane in the active view (when a preview has focus).
+    fn target_terminal(&self) -> Option<TabId> {
+        let focused = self.ws.focused()?;
+        std::iter::once(focused)
+            .chain(self.ws.visible())
+            .find(|id| self.tabs.get(id).is_some_and(|t| t.session().is_some()))
+    }
+
+    /// `cd` the focused shell into `dir`. If a program is running in it, open a new tab there
+    /// instead of typing into that program.
+    pub fn cd_focused(&mut self, dir: &Path) {
+        let idle = self.target_terminal().and_then(|id| {
+            let session = self.tabs.get(&id)?.session()?;
+            shell_idle(session).then(|| (id, query_proc(session).cwd))
+        });
+        match idle {
+            Some((id, cwd)) => {
+                self.activate(id);
+                // Below the shell's cwd, type the short relative form (`cd src/ui`).
+                let target = cwd
+                    .and_then(|cwd| dir.strip_prefix(cwd).ok().map(Path::to_path_buf))
+                    .filter(|rel| !rel.as_os_str().is_empty())
+                    .unwrap_or_else(|| dir.to_path_buf());
+                let line = format!("cd {}\r", crate::files::shell_quote(&target));
+                self.send_input(line.into_bytes());
+            }
+            None => self.new_tab_in(dir.to_path_buf()),
+        }
+    }
+
+    pub fn new_tab_in(&mut self, dir: PathBuf) {
+        if let Some(profile) = self.profiles.first().cloned() {
+            self.spawn_tab(profile, Some(dir), None);
+        }
+    }
+
+    /// Type a (quoted) path into the terminal, as if pasted.
+    pub fn insert_path(&mut self, path: &Path) {
+        if let Some(id) = self.target_terminal() {
+            self.activate(id);
+            self.paste(&format!("{} ", crate::files::shell_quote(path)));
+        }
     }
 
     /// Remember the previously focused tab (the switcher preselects it).
@@ -641,7 +964,7 @@ impl App {
                 }
             }
             Action::NextTab | Action::PrevTab => {
-                // With a single tab, let Alt+Up/Down through to the shell.
+                // With a single tab, let the key through to the shell.
                 if self.ws.order.len() < 2 {
                     return false;
                 }
@@ -665,6 +988,12 @@ impl App {
             Action::NextActivity => self.next_activity(),
             Action::CommandPalette => self.switcher = Some(crate::ui::Switcher::default()),
             Action::OpenSettings => self.open_settings(),
+            Action::ToggleFiles => self.files_open = !self.files_open,
+            Action::NewGroup => {
+                if let Some(f) = self.ws.focused() {
+                    self.new_group(f);
+                }
+            }
             Action::FocusLeft | Action::FocusRight | Action::FocusUp | Action::FocusDown => {
                 let dir = match action {
                     Action::FocusLeft => egui::vec2(-1.0, 0.0),
@@ -672,7 +1001,7 @@ impl App {
                     Action::FocusUp => egui::vec2(0.0, -1.0),
                     _ => egui::vec2(0.0, 1.0),
                 };
-                // With no pane in that direction, let the key through (shells use Alt+Arrow for word movement).
+                // With no pane in that direction, let the key through (shells may use it, e.g. Alt+Arrow for word movement).
                 if !self.focus_neighbor(dir) {
                     return false;
                 }
@@ -681,13 +1010,13 @@ impl App {
             Action::ZoomOut => self.font_size = (self.font_size - 1.0).max(6.0),
             Action::ZoomReset => self.font_size = self.config.font.size,
             Action::ScrollPageUp | Action::ScrollPageDown => {
-                if let Some(tab) = self.focused_tab() {
+                if let Some(session) = self.focused_session() {
                     let scroll = if action == Action::ScrollPageUp {
                         Scroll::PageUp
                     } else {
                         Scroll::PageDown
                     };
-                    tab.session.term.lock().scroll_display(scroll);
+                    session.term.lock().scroll_display(scroll);
                 }
             }
         }
@@ -733,7 +1062,7 @@ impl App {
         }
         let events = self.ctx.input(|i| i.events.clone());
         let mods = self.ctx.input(|i| i.modifiers);
-        // A key that triggered a shortcut is followed by its text (e.g. "t" for Alt+T);
+        // A key that triggered a shortcut is followed by its text (e.g. "t" for Ctrl+Shift+T);
         // swallow it so the shell doesn't also receive ESC t.
         let mut swallow_text = false;
         // Indices of swallowed text events, removed from egui's input afterwards so a text field
@@ -757,10 +1086,10 @@ impl App {
                     if self.switcher.is_some() || self.renaming.is_some() {
                         break;
                     }
-                    let Some(tab) = self.focused_tab() else {
+                    let Some(session) = self.focused_session() else {
                         continue;
                     };
-                    let mode = *tab.session.term.lock().mode();
+                    let mode = *session.term.lock().mode();
                     if let Some(bytes) = crate::input::encode_key(key, modifiers, mode) {
                         self.send_input(bytes);
                     }
@@ -801,25 +1130,28 @@ impl App {
         }
     }
 
-    fn focused_tab(&self) -> Option<&Tab> {
-        self.ws.focused().and_then(|f| self.tabs.get(&f))
+    fn focused_session(&self) -> Option<&Session> {
+        self.ws
+            .focused()
+            .and_then(|f| self.tabs.get(&f))
+            .and_then(Tab::session)
     }
 
     /// Write user input to the focused tab, snapping the view back to the bottom.
     fn send_input(&mut self, bytes: Vec<u8>) {
-        if let Some(tab) = self.focused_tab() {
+        if let Some(session) = self.focused_session() {
             {
-                let mut term = tab.session.term.lock();
+                let mut term = session.term.lock();
                 term.scroll_display(Scroll::Bottom);
                 term.selection = None;
             }
-            tab.session.write(bytes);
+            session.write(bytes);
         }
     }
 
     pub fn paste(&mut self, text: &str) {
-        if let Some(tab) = self.focused_tab() {
-            let mode = *tab.session.term.lock().mode();
+        if let Some(session) = self.focused_session() {
+            let mode = *session.term.lock().mode();
             let bytes = crate::input::encode_paste(text, mode);
             self.send_input(bytes);
         }
@@ -827,11 +1159,11 @@ impl App {
 
     /// Copy the focused tab's selection. Returns false if nothing was selected.
     fn copy_selection(&mut self) -> bool {
-        let Some(tab) = self.focused_tab() else {
+        let Some(session) = self.focused_session() else {
             return false;
         };
         let text = {
-            let mut term = tab.session.term.lock();
+            let mut term = session.term.lock();
             let text = term.selection_to_string().filter(|s| !s.is_empty());
             if text.is_some() {
                 term.selection = None;
@@ -879,7 +1211,7 @@ impl eframe::App for App {
         self.collect_problems();
         self.process_events();
         self.handle_keyboard();
-        self.poll_titles();
+        self.poll();
 
         if self.tabs.is_empty() {
             ctx.send_viewport_cmd(egui::ViewportCommand::Close);
@@ -887,6 +1219,9 @@ impl eframe::App for App {
         }
 
         self.sidebar(ui);
+        if self.files_open {
+            self.files_panel(ui);
+        }
         self.panes(ui);
         self.switcher_ui(&ctx);
         self.problems_banner(&ctx);
@@ -895,12 +1230,37 @@ impl eframe::App for App {
     }
 }
 
+fn shell_idle(session: &Session) -> bool {
+    #[cfg(unix)]
+    let fd = session.pty_fd as i64;
+    #[cfg(not(unix))]
+    let fd = -1;
+    procinfo::shell_in_foreground(session.child_pid, fd)
+}
+
 fn query_proc(session: &Session) -> procinfo::ProcInfo {
     #[cfg(unix)]
     let fd = session.pty_fd as i64;
     #[cfg(not(unix))]
     let fd = -1;
     procinfo::query(session.child_pid, fd)
+}
+
+/// The tab profile for a preview: file name as title, file type as icon.
+fn preview_profile(p: &Preview) -> Profile {
+    Profile {
+        name: p
+            .path
+            .file_name()
+            .map(|n| n.to_string_lossy().into_owned())
+            .unwrap_or_else(|| p.path.to_string_lossy().into_owned()),
+        command: String::new(),
+        args: Vec::new(),
+        cwd: p.path.parent().map(Path::to_path_buf),
+        env: HashMap::new(),
+        icon: p.icon().into(),
+        color: None,
+    }
 }
 
 fn apply_style(ctx: &egui::Context, c: &UiColors) {

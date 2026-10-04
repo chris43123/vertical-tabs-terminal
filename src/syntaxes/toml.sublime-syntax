@@ -1,0 +1,118 @@
+%YAML 1.2
+---
+# A compact TOML grammar (syntect's bundled set has none). Also used for INI-style files.
+name: TOML
+file_extensions: [toml, tml, ini, cfg, conf, desktop, service, editorconfig]
+scope: source.toml
+
+contexts:
+  main:
+    - include: comment
+    - match: '^\s*(\[\[)([^\]]*)(\]\])'
+      captures:
+        1: punctuation.definition.table.array.toml
+        2: entity.name.section.toml
+        3: punctuation.definition.table.array.toml
+    - match: '^\s*(\[)([^\]]*)(\])'
+      captures:
+        1: punctuation.definition.table.toml
+        2: entity.name.section.toml
+        3: punctuation.definition.table.toml
+    - match: '(?=[A-Za-z0-9_."''-][A-Za-z0-9_. "''-]*=)'
+      push: key
+
+  key:
+    - match: '"'
+      scope: punctuation.definition.string.begin.toml
+      push:
+        - meta_scope: meta.mapping.key.toml string.quoted.double.toml
+        - match: '"'
+          scope: punctuation.definition.string.end.toml
+          pop: true
+    - match: "'"
+      push:
+        - meta_scope: meta.mapping.key.toml string.quoted.single.toml
+        - match: "'"
+          pop: true
+    - match: '[A-Za-z0-9_-]+'
+      scope: meta.mapping.key.toml entity.name.key.toml
+    - match: '\.'
+      scope: punctuation.separator.key.toml
+    - match: '\s*(=)\s*'
+      captures:
+        1: keyword.operator.assignment.toml
+      set: value
+
+  value:
+    - match: '$'
+      pop: true
+    - include: values
+
+  values:
+    - include: comment
+    - match: '"""'
+      push:
+        - meta_scope: string.quoted.triple.toml
+        - include: escape
+        - match: '"""'
+          pop: true
+    - match: "'''"
+      push:
+        - meta_scope: string.quoted.triple.literal.toml
+        - match: "'''"
+          pop: true
+    - match: '"'
+      push:
+        - meta_scope: string.quoted.double.toml
+        - include: escape
+        - match: '"|$'
+          pop: true
+    - match: "'"
+      push:
+        - meta_scope: string.quoted.single.toml
+        - match: "'|$"
+          pop: true
+    - match: '\b(true|false)\b'
+      scope: constant.language.boolean.toml
+    - match: '\d{4}-\d{2}-\d{2}([Tt ]\d{2}:\d{2}:\d{2}(\.\d+)?([Zz]|[+-]\d{2}:\d{2})?)?'
+      scope: constant.other.datetime.toml
+    - match: '[+-]?(0x[0-9A-Fa-f_]+|0o[0-7_]+|0b[01_]+|inf|nan|\d[\d_]*(\.[\d_]+)?([eE][+-]?\d+)?)\b'
+      scope: constant.numeric.toml
+    - match: '\['
+      scope: punctuation.section.array.begin.toml
+      push:
+        - match: '\]'
+          scope: punctuation.section.array.end.toml
+          pop: true
+        - match: ','
+          scope: punctuation.separator.array.toml
+        - include: values
+    - match: '\{'
+      scope: punctuation.section.table.inline.begin.toml
+      push:
+        - match: '\}'
+          scope: punctuation.section.table.inline.end.toml
+          pop: true
+        - match: ','
+          scope: punctuation.separator.table.inline.toml
+        - match: '(?=[A-Za-z0-9_."''-][A-Za-z0-9_. "''-]*=)'
+          push: inline_key
+        - include: values
+
+  inline_key:
+    - match: '[A-Za-z0-9_-]+|"[^"]*"'
+      scope: meta.mapping.key.toml entity.name.key.toml
+    - match: '\.'
+      scope: punctuation.separator.key.toml
+    - match: '\s*(=)\s*'
+      captures:
+        1: keyword.operator.assignment.toml
+      pop: true
+
+  escape:
+    - match: '\\(u[0-9A-Fa-f]{4}|U[0-9A-Fa-f]{8}|.)'
+      scope: constant.character.escape.toml
+
+  comment:
+    - match: '[#;].*$'
+      scope: comment.line.number-sign.toml

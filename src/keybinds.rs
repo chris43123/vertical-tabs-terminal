@@ -1,8 +1,8 @@
 //! App shortcuts: per-OS defaults, overridable from `[keybindings]` in the config.
 //!
 //! Chords are written like `"alt+t"`, `"ctrl+shift+tab"` or `"cmd+1"`. On Linux/Windows the
-//! defaults use Alt (the key where Cmd sits on a Mac). They avoid Alt+B/D/F, which shells use
-//! for word movement and deletion.
+//! defaults are only the conventional terminal ones (Ctrl+Shift+T, Ctrl+Tab, ...); Alt chords
+//! are left to the shell. Everything else is in the palette and can be bound in the config.
 
 use std::collections::HashMap;
 
@@ -33,6 +33,10 @@ pub enum Action {
     NextActivity,
     CommandPalette,
     OpenSettings,
+    /// Show or hide the files panel.
+    ToggleFiles,
+    /// Put the focused tab into a new sidebar folder.
+    NewGroup,
     FocusLeft,
     FocusRight,
     FocusUp,
@@ -83,6 +87,8 @@ pub const ACTIONS: &[(&str, &str, Action)] = &[
         Action::CommandPalette,
     ),
     ("open_settings", "Open settings file", Action::OpenSettings),
+    ("toggle_files", "Toggle files panel", Action::ToggleFiles),
+    ("new_group", "New folder with this tab", Action::NewGroup),
     ("focus_left", "Focus pane left", Action::FocusLeft),
     ("focus_right", "Focus pane right", Action::FocusRight),
     ("focus_up", "Focus pane above", Action::FocusUp),
@@ -166,13 +172,8 @@ impl Chord {
 
     /// Human-readable form for tooltips, e.g. "Alt+Shift+D" or "⌘T".
     pub fn label(&self) -> String {
-        let key = match self.key {
-            Key::ArrowLeft => "←".to_string(),
-            Key::ArrowRight => "→".to_string(),
-            Key::ArrowUp => "↑".to_string(),
-            Key::ArrowDown => "↓".to_string(),
-            k => k.symbol_or_name().to_string(),
-        };
+        // egui's names for the arrows (⏴⏵⏶⏷) are in its bundled fonts; ←→↑↓ aren't.
+        let key = self.key.symbol_or_name().to_string();
         if cfg!(target_os = "macos") {
             let mut out = String::new();
             for (on, sym) in [
@@ -309,7 +310,7 @@ impl Keybinds {
         find(key).or_else(|| physical.filter(|p| *p != key).and_then(find))
     }
 
-    /// First chord bound to `action`, e.g. "Alt+T".
+    /// First chord bound to `action`, e.g. "Ctrl+Shift+T".
     pub fn label(&self, action: Action) -> Option<String> {
         self.bindings
             .iter()
@@ -317,7 +318,7 @@ impl Keybinds {
             .map(|(c, _)| c.label())
     }
 
-    /// Like [`Self::label`], formatted for a tooltip, e.g. " (Alt+T)".
+    /// Like [`Self::label`], formatted for a tooltip, e.g. " (Ctrl+Shift+T)".
     pub fn hint(&self, action: Action) -> String {
         self.label(action)
             .map(|l| format!(" ({l})"))
@@ -357,6 +358,7 @@ fn default_specs(macos: bool) -> Vec<(String, Action)> {
             ("cmd+p", CommandPalette),
             ("cmd+shift+p", CommandPalette),
             ("cmd+comma", OpenSettings),
+            ("cmd+shift+e", ToggleFiles),
             ("cmd+alt+left", FocusLeft),
             ("cmd+alt+right", FocusRight),
             ("cmd+alt+up", FocusUp),
@@ -369,30 +371,11 @@ fn default_specs(macos: bool) -> Vec<(String, Action)> {
         ]
     } else {
         vec![
-            ("alt+t", NewTab),
-            ("alt+w", CloseTab),
-            ("alt+shift+t", ReopenClosedTab),
-            ("alt+r", RenameTab),
-            ("alt+shift+d", SplitRight),
-            ("alt+shift+e", SplitDown),
-            ("alt+m", MinimizePane),
-            ("alt+shift+b", ToggleSidebar),
-            ("alt+down", NextTab),
-            ("alt+up", PrevTab),
-            ("alt+shift+down", MoveTabDown),
-            ("alt+shift+up", MoveTabUp),
-            ("alt+9", LastTab),
-            ("alt+a", NextActivity),
-            ("alt+p", CommandPalette),
-            // Common terminal shortcuts, kept as alternates since they clash with nothing.
             ("ctrl+shift+t", NewTab),
             ("ctrl+shift+w", CloseTab),
             ("ctrl+shift+p", CommandPalette),
-            ("alt+comma", OpenSettings),
-            ("alt+left", FocusLeft),
-            ("alt+right", FocusRight),
-            ("ctrl+alt+up", FocusUp),
-            ("ctrl+alt+down", FocusDown),
+            ("ctrl+shift+e", ToggleFiles),
+            ("ctrl+comma", OpenSettings),
             ("ctrl+equals", ZoomIn),
             ("ctrl+plus", ZoomIn),
             ("ctrl+shift+plus", ZoomIn),
@@ -408,11 +391,15 @@ fn default_specs(macos: bool) -> Vec<(String, Action)> {
         ("shift+pageup", ScrollPageUp),
         ("shift+pagedown", ScrollPageDown),
     ]);
-    // 1-8 jump to that tab; 9 is the last tab (like browsers).
-    let goto_mod = if macos { "cmd" } else { "alt" };
+    // On macOS, Cmd+1-8 jump to that tab and Cmd+9 is the last tab (like browsers).
+    let goto: Vec<(String, Action)> = if macos {
+        (1..=8).map(|n| (format!("cmd+{n}"), GotoTab(n))).collect()
+    } else {
+        Vec::new()
+    };
     list.iter()
         .map(|(s, a)| (s.to_string(), *a))
-        .chain((1..=8).map(|n| (format!("{goto_mod}+{n}"), GotoTab(n))))
+        .chain(goto)
         .collect()
 }
 
@@ -498,35 +485,34 @@ mod tests {
     fn defaults_and_exact_modifier_matching() {
         let kb = Keybinds::new(&HashMap::new());
         assert_eq!(
-            kb.lookup_l(Key::T, mods(false, false, true)),
-            Some(Action::NewTab)
-        );
-        assert_eq!(
             kb.lookup_l(Key::T, mods(true, true, false)),
             Some(Action::NewTab)
         );
         assert_eq!(
-            kb.lookup_l(Key::Num3, mods(false, false, true)),
-            Some(Action::GotoTab(3))
-        );
-        assert_eq!(
-            kb.lookup_l(Key::Num9, mods(false, false, true)),
-            Some(Action::LastTab)
-        );
-        assert_eq!(
-            kb.lookup_l(Key::ArrowDown, mods(false, false, true)),
+            kb.lookup_l(Key::Tab, mods(true, false, false)),
             Some(Action::NextTab)
         );
         assert_eq!(
-            kb.lookup_l(Key::ArrowUp, mods(false, true, true)),
-            Some(Action::MoveTabUp)
+            kb.lookup_l(Key::E, mods(true, true, false)),
+            Some(Action::ToggleFiles)
         );
-        // Alt+D / Alt+B stay with the shell (delete word / back word).
-        assert_eq!(kb.lookup_l(Key::D, mods(false, false, true)), None);
-        assert_eq!(kb.lookup_l(Key::B, mods(false, false, true)), None);
+        // Alt chords all belong to the shell.
+        for key in [
+            Key::T,
+            Key::W,
+            Key::P,
+            Key::D,
+            Key::B,
+            Key::Num1,
+            Key::ArrowUp,
+        ] {
+            assert_eq!(kb.lookup_l(key, mods(false, false, true)), None, "{key:?}");
+            assert_eq!(kb.lookup_l(key, mods(false, true, true)), None, "{key:?}");
+        }
         // Extra modifiers must not match.
-        assert_eq!(kb.lookup_l(Key::T, mods(true, false, true)), None);
-        assert_eq!(kb.hint(Action::NewTab), " (Alt+T)");
+        assert_eq!(kb.lookup_l(Key::T, mods(true, true, true)), None);
+        assert_eq!(kb.hint(Action::NewTab), " (Ctrl+Shift+T)");
+        assert_eq!(kb.hint(Action::RenameTab), "");
     }
 
     #[cfg(not(target_os = "macos"))]

@@ -32,6 +32,32 @@ pub struct Config {
     pub editor: Option<String>,
     /// Shortcut overrides: action name -> chord or list of chords (see `keybinds.rs`).
     pub keybindings: HashMap<String, crate::keybinds::BindingConfig>,
+    /// The files panel.
+    pub files: FilesConfig,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(default)]
+pub struct FilesConfig {
+    /// Show the files panel at startup.
+    pub open: bool,
+    /// Initial panel width in logical pixels (drag its edge to resize).
+    pub width: f32,
+    /// List dotfiles (and hidden files on Windows).
+    pub show_hidden: bool,
+    /// Soft-wrap long lines in text and code previews.
+    pub wrap: bool,
+}
+
+impl Default for FilesConfig {
+    fn default() -> Self {
+        Self {
+            open: false,
+            width: 260.0,
+            show_hidden: false,
+            wrap: true,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -76,6 +102,7 @@ impl Default for Config {
             adopt_shell_palette: false,
             editor: None,
             keybindings: HashMap::new(),
+            files: FilesConfig::default(),
         }
     }
 }

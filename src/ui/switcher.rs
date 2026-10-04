@@ -1,4 +1,4 @@
-//! Keyboard tab switcher / command palette (Alt+P): fuzzy-search tabs, commands and profiles.
+//! Keyboard tab switcher / command palette (Ctrl+Shift+P): fuzzy-search tabs, commands and profiles.
 //! Commands list their shortcut, so the palette doubles as a cheat sheet.
 
 use eframe::egui::text::{LayoutJob, TextWrapping};
@@ -45,7 +45,7 @@ impl App {
         let first_frame = !sw.initialized;
         if first_frame {
             sw.initialized = true;
-            // Preselect the previously focused tab, so Alt+P, Enter flips between two tabs.
+            // Preselect the previously focused tab, so opening it and pressing Enter flips between two tabs.
             sw.selected = self
                 .prev_focused
                 .and_then(|p| rows.iter().position(|r| r.entry == Entry::Tab(p)))

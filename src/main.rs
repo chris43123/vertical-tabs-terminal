@@ -3,9 +3,13 @@
 mod app;
 mod config;
 mod diag;
+mod files;
+mod highlight;
 mod input;
 mod keybinds;
 mod layout;
+mod markdown;
+mod preview;
 mod procinfo;
 mod profiles;
 mod render;

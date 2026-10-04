@@ -1,5 +1,7 @@
 //! The main area: renders the active view's split tree, pane headers (─ minimise, × close),
 //! drag-to-split drop zones, splitter resizing, and mouse input (selection, reporting, scroll).
+//! Preview tabs render through `preview.rs`; files dragged from the tree onto a terminal type
+//! their path.
 
 use alacritty_terminal::grid::Scroll;
 use alacritty_terminal::index::{Column, Line, Point};
@@ -25,6 +27,7 @@ enum PaneAction {
     Minimize(TabId),
     Close(TabId),
     Drop(TabId, TabId, Drop),
+    InsertPath(TabId, std::path::PathBuf),
 }
 
 impl App {
@@ -92,6 +95,10 @@ impl App {
                             self.ws.drop_on(dragged, target, drop);
                             self.activate(dragged);
                         }
+                        PaneAction::InsertPath(id, path) => {
+                            self.activate(id);
+                            self.insert_path(&path);
+                        }
                     }
                 }
             });
@@ -125,13 +132,38 @@ impl App {
                 term_bg,
             );
         }
+        if self.tabs.get(&id).is_some_and(|t| t.preview().is_some()) {
+            // Any click inside a preview focuses it (its widgets still get the click).
+            let pressed = ui.input(|i| i.pointer.any_pressed());
+            if pressed && !focused && ui.rect_contains_pointer(body) {
+                actions.push(PaneAction::Focus(id));
+            }
+            if !split {
+                ui.painter().rect_filled(body, 0.0, term_bg);
+            }
+            self.preview_pane(ui, id, body);
+            if split && !focused {
+                ui.painter().rect_filled(
+                    body,
+                    CornerRadius {
+                        nw: 0,
+                        ne: 0,
+                        sw: 6,
+                        se: 6,
+                    },
+                    Color32::from_black_alpha(25),
+                );
+            }
+            self.drop_zone(ui, id, rect, actions);
+            return;
+        }
         let inner = body.shrink2(vec2(PADDING + 2.0, PADDING));
 
-        let Some(tab) = self.tabs.get_mut(&id) else {
+        let Some(session) = self.tabs.get_mut(&id).and_then(|t| t.session_mut()) else {
             return;
         };
         let size = grid_size_for(inner, &self.fonts);
-        tab.session.resize(size, self.fonts.cell_px());
+        session.resize(size, self.fonts.cell_px());
 
         let resp = ui.interact(body, Id::new(("term", id)), Sense::click_and_drag());
         if (resp.clicked() || resp.drag_started() || resp.secondary_clicked()) && !focused {
@@ -142,9 +174,11 @@ impl App {
         }
         self.pane_mouse(ui, id, &resp, inner);
 
-        let tab = &self.tabs[&id];
+        let Some(session) = self.tabs[&id].session() else {
+            return;
+        };
         {
-            let term = tab.session.term.lock();
+            let term = session.term.lock();
             paint_terminal(
                 &ui.painter_at(inner),
                 inner,
@@ -169,6 +203,37 @@ impl App {
         }
 
         self.drop_zone(ui, id, rect, actions);
+        self.file_drop(ui, id, body, actions);
+    }
+
+    /// A file dragged from the files panel onto a terminal types its path there.
+    fn file_drop(&self, ui: &Ui, id: TabId, body: Rect, actions: &mut Vec<PaneAction>) {
+        let Some(drag) = egui::DragAndDrop::payload::<crate::ui::FileDrag>(ui.ctx()) else {
+            return;
+        };
+        if !ui.rect_contains_pointer(body) {
+            return;
+        }
+        let painter = ui.ctx().layer_painter(egui::LayerId::new(
+            egui::Order::Foreground,
+            Id::new("file_drop"),
+        ));
+        painter.rect_stroke(
+            body.shrink(4.0),
+            CornerRadius::same(8),
+            Stroke::new(2.0, self.chrome.accent),
+            StrokeKind::Inside,
+        );
+        painter.text(
+            body.center(),
+            Align2::CENTER_CENTER,
+            "Insert path",
+            FontId::proportional(16.0),
+            self.chrome.fg,
+        );
+        if ui.ctx().input(|i| i.pointer.any_released()) {
+            actions.push(PaneAction::InsertPath(id, drag.0.clone()));
+        }
     }
 
     fn pane_header(
@@ -252,7 +317,7 @@ impl App {
             self.keybinds.hint(crate::keybinds::Action::CloseTab)
         );
         for (r, glyph, tip, is_close) in [
-            (min_rect, "─", "Minimise (move back to its own tab)", false),
+            (min_rect, "—", "Minimise (move back to its own tab)", false),
             (close_rect, "×", close_tip.as_str(), true),
         ] {
             let b = ui
@@ -341,14 +406,14 @@ impl App {
 
     /// Mouse selection, mouse reporting to applications, and wheel scrolling.
     fn pane_mouse(&mut self, ui: &Ui, id: TabId, resp: &egui::Response, inner: Rect) {
-        let Some(tab) = self.tabs.get(&id) else {
+        let Some(session) = self.tabs.get(&id).and_then(|t| t.session()) else {
             return;
         };
         let (mode, display_offset) = {
-            let term = tab.session.term.lock();
+            let term = session.term.lock();
             (*term.mode(), term.grid().display_offset())
         };
-        let size = tab.session.size;
+        let size = session.size;
         let mods = ui.input(|i| i.modifiers);
         // Shift bypasses mouse reporting so you can always select text.
         let reporting = mode.intersects(TermMode::MOUSE_MODE) && !mods.shift;
@@ -388,7 +453,9 @@ impl App {
             }
         }
 
-        let tab = &self.tabs[&id];
+        let Some(session) = self.tabs[&id].session() else {
+            return;
+        };
         let cell = |pos| cell_at(pos, inner, &self.fonts, size);
 
         if reporting {
@@ -415,7 +482,7 @@ impl App {
                     if let Some(bytes) =
                         encode_mouse(button, pressed, false, col, line, modifiers, mode)
                     {
-                        tab.session.write(bytes);
+                        session.write(bytes);
                     }
                 }
             }
@@ -432,7 +499,7 @@ impl App {
                         MouseButton::Left
                     };
                     if let Some(bytes) = encode_mouse(button, true, true, col, line, mods, mode) {
-                        tab.session.write(bytes);
+                        session.write(bytes);
                     }
                 }
             }
@@ -446,7 +513,7 @@ impl App {
         if let Some(pos) = resp.interact_pointer_pos().or(pointer) {
             let (col, line, side) = cell(pos);
             let point = to_point(col, line);
-            let mut term = tab.session.term.lock();
+            let mut term = session.term.lock();
             if resp.triple_clicked() {
                 term.selection = Some(Selection::new(SelectionType::Lines, point, side));
             } else if resp.double_clicked() {
@@ -476,7 +543,7 @@ impl App {
         // Right click: copy the selection if any, otherwise paste (Windows Terminal style).
         if resp.secondary_clicked() {
             let text = {
-                let mut term = tab.session.term.lock();
+                let mut term = session.term.lock();
                 let text = term.selection_to_string().filter(|s| !s.is_empty());
                 if text.is_some() {
                     term.selection = None;
@@ -504,7 +571,7 @@ impl App {
         mods: egui::Modifiers,
         reporting: bool,
     ) {
-        let Some(tab) = self.tabs.get(&id) else {
+        let Some(session) = self.tabs.get(&id).and_then(|t| t.session()) else {
             return;
         };
         let count = lines.unsigned_abs() as usize;
@@ -517,7 +584,7 @@ impl App {
             };
             for _ in 0..count {
                 if let Some(bytes) = encode_mouse(button, true, false, col, line, mods, mode) {
-                    tab.session.write(bytes);
+                    session.write(bytes);
                 }
             }
         } else if mode.contains(TermMode::ALT_SCREEN | TermMode::ALTERNATE_SCROLL) {
@@ -528,9 +595,9 @@ impl App {
                 (false, true) => b"\x1bOB",
                 (false, false) => b"\x1b[B",
             };
-            tab.session.write(seq.repeat(count));
+            session.write(seq.repeat(count));
         } else {
-            tab.session.term.lock().scroll_display(Scroll::Delta(lines));
+            session.term.lock().scroll_display(Scroll::Delta(lines));
         }
     }
 }

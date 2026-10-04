@@ -35,6 +35,24 @@ pub fn query(_child_pid: Option<u32>, _pty_fd: i64) -> ProcInfo {
     ProcInfo::default()
 }
 
+/// True when the shell itself is in the foreground (nothing running in it), so typing a
+/// command line into it is safe.
+#[cfg(unix)]
+pub fn shell_in_foreground(child_pid: Option<u32>, pty_fd: i64) -> bool {
+    if pty_fd < 0 {
+        return false;
+    }
+    // SAFETY: tcgetpgrp only reads the fd; an invalid fd returns -1.
+    let pgrp = unsafe { libc::tcgetpgrp(pty_fd as libc::c_int) };
+    child_pid.is_some_and(|pid| pgrp > 0 && pgrp as u32 == pid)
+}
+
+#[cfg(windows)]
+pub fn shell_in_foreground(_child_pid: Option<u32>, _pty_fd: i64) -> bool {
+    // No cheap way to tell on Windows; assume the shell is at its prompt.
+    true
+}
+
 #[cfg(target_os = "linux")]
 fn process_name(pid: u32) -> Option<String> {
     let name = std::fs::read_to_string(format!("/proc/{pid}/comm")).ok()?;

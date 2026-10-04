@@ -28,7 +28,7 @@ sidebar_collapsed = false
 # this for every open terminal), apply them to the whole app instead of just that tab.
 adopt_shell_palette = false
 
-# Editor for "Open settings" (Alt+,). Defaults to $VISUAL / $EDITOR, then the system's default app.
+# Editor for "Open settings" (Ctrl+,). Defaults to $VISUAL / $EDITOR, then the system's default app.
 # Terminal editors open in a new vtt tab.
 # editor = "nvim"
 
@@ -36,6 +36,16 @@ adopt_shell_palette = false
 # Font family; defaults to the system monospace font.
 # family = "JetBrains Mono"
 size = 14.0
+
+[files]
+# Show the files panel (between the tabs and the terminals) at startup. Toggle: Ctrl+Shift+E.
+open = false
+# Initial width in logical pixels; drag the panel's edge to resize.
+width = 260.0
+# List dotfiles (and hidden files on Windows).
+show_hidden = false
+# Wrap long lines in text and code previews (toggle with "Wrap" in the preview's toolbar).
+wrap = true
 
 # Inline color overrides, applied on top of the theme. Same keys as a theme file:
 # foreground, background, cursor, selection, ansi = [16 colors], colorN (any index 0-255),
@@ -52,6 +62,8 @@ size = 14.0
 # prev_tab = ["ctrl+shift+tab", "alt+k"]
 # close_tab = []                           # unbind
 # duplicate_tab = "alt+shift+n"            # unbound by default
+# new_group = "alt+g"                      # unbound by default
+# goto_tab_1 = "alt+1"                     # Linux/Windows: most actions are unbound
 
 # Extra profiles, added after the auto-discovered shells.
 # A profile with the same name as a discovered one replaces it.
