@@ -20,7 +20,7 @@ use crate::preview::highlight::Highlighter;
 use crate::render::{Fonts, Palette};
 use crate::terminal::procinfo;
 use crate::terminal::profiles::{self, Profile};
-use crate::terminal::session::{GridSize, Session};
+use crate::terminal::session::{GridSize, Listener, Session};
 use crate::theme::{self, Patch, Theme, UiColors, mix};
 use crate::workspace::{Drop, Edge, GroupId, TabId, Workspace};
 
@@ -358,7 +358,7 @@ impl App {
     fn focused_dir(&mut self, id: TabId) -> Option<PathBuf> {
         let tab = self.tabs.get_mut(&id)?;
         if let Some(session) = tab.session() {
-            let cwd = query_proc(session).cwd;
+            let cwd = session.proc_info().cwd;
             if cwd.is_some() {
                 tab.cwd = cwd;
             }
@@ -382,14 +382,12 @@ impl App {
             lines: 24,
         };
         let session = match Session::spawn(
-            id,
             &profile,
+            cwd,
             crate::terminal::session::term_config(self.config.scrollback, &self.config.cursor),
             size,
             self.fonts.cell_px(),
-            cwd,
-            self.tx.clone(),
-            self.ctx.clone(),
+            Listener::new(id, self.tx.clone(), self.ctx.clone()),
         ) {
             Ok(s) => s,
             Err(err) => {
@@ -413,7 +411,7 @@ impl App {
                 profile: tab.profile.clone(),
                 cwd: tab
                     .session()
-                    .and_then(|s| query_proc(s).cwd)
+                    .and_then(|s| s.proc_info().cwd)
                     .or(tab.cwd.clone()),
                 custom_title: tab.custom_title.clone(),
                 index: self.ws.order.iter().position(|t| *t == id).unwrap_or(0),
@@ -754,7 +752,7 @@ impl App {
                 .and_then(|f| self.tabs.get(&f))
                 .and_then(Tab::session)
             {
-                let idle = shell_idle(session);
+                let idle = session.shell_idle();
                 if idle && !self.shell_was_idle {
                     self.git.tick(&self.ctx, true);
                 }
@@ -969,7 +967,7 @@ impl App {
                     let Some(session) = tab.session() else {
                         continue;
                     };
-                    let info = query_proc(session);
+                    let info = session.proc_info();
                     tab.auto_title = procinfo::format_title(&info);
                     tab.process = info.process;
                     if info.cwd.is_some() {
@@ -1032,7 +1030,7 @@ impl App {
         let Some(session) = tab.session() else {
             return;
         };
-        if let Some(cwd) = query_proc(session).cwd {
+        if let Some(cwd) = session.proc_info().cwd {
             tab.cwd = Some(cwd);
         }
         let Some(cwd) = tab.cwd.clone() else { return };
@@ -1061,7 +1059,7 @@ impl App {
     pub fn cd_focused(&mut self, dir: &Path) {
         let idle = self.target_terminal().and_then(|id| {
             let session = self.tabs.get(&id)?.session()?;
-            shell_idle(session).then(|| (id, query_proc(session).cwd))
+            session.shell_idle().then(|| (id, session.proc_info().cwd))
         });
         match idle {
             Some((id, cwd)) => {
@@ -1544,22 +1542,6 @@ impl eframe::App for App {
         self.track_focus();
         self.update_window_title();
     }
-}
-
-fn shell_idle(session: &Session) -> bool {
-    #[cfg(unix)]
-    let fd = session.pty_fd as i64;
-    #[cfg(not(unix))]
-    let fd = -1;
-    procinfo::shell_in_foreground(session.child_pid, fd)
-}
-
-fn query_proc(session: &Session) -> procinfo::ProcInfo {
-    #[cfg(unix)]
-    let fd = session.pty_fd as i64;
-    #[cfg(not(unix))]
-    let fd = -1;
-    procinfo::query(session.child_pid, fd)
 }
 
 /// The tab profile for a preview: file name as title, file type as icon.

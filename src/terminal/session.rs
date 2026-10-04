@@ -13,6 +13,7 @@ use alacritty_terminal::term::{self, Term};
 use alacritty_terminal::tty;
 
 use crate::config::{CursorConfig, CursorStyle};
+use crate::terminal::procinfo::{self, ProcInfo};
 use crate::terminal::profiles::Profile;
 use crate::workspace::TabId;
 
@@ -22,6 +23,12 @@ pub struct Listener {
     id: TabId,
     tx: Sender<(TabId, Event)>,
     ctx: eframe::egui::Context,
+}
+
+impl Listener {
+    pub fn new(id: TabId, tx: Sender<(TabId, Event)>, ctx: eframe::egui::Context) -> Self {
+        Self { id, tx, ctx }
+    }
 }
 
 impl EventListener for Listener {
@@ -56,23 +63,22 @@ pub struct Session {
     notifier: Notifier,
     pub size: GridSize,
     /// PID of the shell (used for auto titles).
-    pub child_pid: Option<u32>,
+    child_pid: Option<u32>,
     /// PTY master fd, used to query the foreground process group.
     #[cfg(unix)]
-    pub pty_fd: std::os::fd::RawFd,
+    pty_fd: std::os::fd::RawFd,
 }
 
 impl Session {
-    #[allow(clippy::too_many_arguments)]
+    /// Start `profile`'s shell in `cwd` (else the profile's directory, else home). Terminal
+    /// events are delivered through `listener`.
     pub fn spawn(
-        id: TabId,
         profile: &Profile,
+        cwd: Option<std::path::PathBuf>,
         term_config: term::Config,
         size: GridSize,
         cell_px: (u16, u16),
-        cwd: Option<std::path::PathBuf>,
-        tx: Sender<(TabId, Event)>,
-        ctx: eframe::egui::Context,
+        listener: Listener,
     ) -> std::io::Result<Self> {
         let mut env = profile.env.clone();
         env.insert("TERM".into(), "xterm-256color".into());
@@ -93,7 +99,7 @@ impl Session {
         };
 
         let window_size = window_size(size, cell_px);
-        let pty = tty::new(&options, window_size, id)?;
+        let pty = tty::new(&options, window_size, listener.id)?;
 
         #[cfg(unix)]
         let (child_pid, pty_fd) = {
@@ -103,7 +109,6 @@ impl Session {
         #[cfg(windows)]
         let child_pid = pty.child_watcher().pid().map(|p| p.get());
 
-        let listener = Listener { id, tx, ctx };
         let term = Arc::new(FairMutex::new(Term::new(
             term_config,
             &size,
@@ -123,6 +128,24 @@ impl Session {
             #[cfg(unix)]
             pty_fd,
         })
+    }
+
+    /// The foreground process and the shell's cwd.
+    pub fn proc_info(&self) -> ProcInfo {
+        procinfo::query(self.child_pid, self.raw_pty_fd())
+    }
+
+    /// The shell itself is in the foreground, i.e. it's at its prompt rather than running
+    /// a program.
+    pub fn shell_idle(&self) -> bool {
+        procinfo::shell_in_foreground(self.child_pid, self.raw_pty_fd())
+    }
+
+    fn raw_pty_fd(&self) -> i64 {
+        #[cfg(unix)]
+        return self.pty_fd as i64;
+        #[cfg(not(unix))]
+        -1
     }
 
     pub fn write(&self, bytes: impl Into<Cow<'static, [u8]>>) {
