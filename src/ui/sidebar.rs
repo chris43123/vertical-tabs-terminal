@@ -8,7 +8,8 @@ use eframe::egui::{
     StrokeKind, Ui, pos2, vec2,
 };
 
-use crate::app::{App, RenameTarget, TabDrag};
+use crate::app::{App, Content, RenameTarget, TabDrag};
+use crate::icons::Icon;
 use crate::keybinds::Action as Shortcut;
 use crate::layout::GroupId;
 use crate::session::TabId;
@@ -620,19 +621,47 @@ impl App {
             rect.center()
         };
         let icon_rect = Rect::from_center_size(icon_center, vec2(22.0, 22.0));
-        let icon_color = tab
+        let icon = match &tab.content {
+            Content::Term(_) => crate::icons::icon_for(
+                tab.process.as_deref(),
+                tab.cwd.as_deref(),
+                dirs::home_dir().as_deref(),
+            ),
+            Content::Preview(_) => None,
+        };
+        let profile_color = tab
             .profile
             .color
             .map(|[r, g, b]| Color32::from_rgb(r, g, b))
             .unwrap_or(c.raised_sidebar(0.28));
-        painter.rect_filled(icon_rect, CornerRadius::same(5), icon_color);
-        painter.text(
-            icon_rect.center(),
-            Align2::CENTER_CENTER,
-            &tab.profile.icon,
-            FontId::monospace(12.0),
-            c.readable_on(icon_color),
-        );
+        match icon {
+            Some(Icon::Folder(initial)) => {
+                paint_folder_icon(
+                    &painter,
+                    icon_rect,
+                    &initial,
+                    profile_color,
+                    c.readable_on(profile_color),
+                );
+            }
+            other => {
+                let (label, color) = match other {
+                    Some(Icon::Label(label, color)) => {
+                        (label, color.map(|[r, g, b]| Color32::from_rgb(r, g, b)))
+                    }
+                    _ => (tab.profile.icon.clone(), None),
+                };
+                let fill = color.unwrap_or(profile_color);
+                painter.rect_filled(icon_rect, CornerRadius::same(5), fill);
+                painter.text(
+                    icon_rect.center(),
+                    Align2::CENTER_CENTER,
+                    label,
+                    FontId::monospace(12.0),
+                    c.readable_on(fill),
+                );
+            }
+        }
 
         let text_color = if focused || in_active {
             visuals.strong_text_color()
@@ -950,4 +979,28 @@ impl App {
             Action::OpenPath(path) => self.open_path_tab(path),
         }
     }
+}
+
+/// A folder shape (body plus tab) holding `initial`, for tabs sitting at a shell prompt.
+fn paint_folder_icon(
+    painter: &egui::Painter,
+    rect: Rect,
+    initial: &str,
+    fill: Color32,
+    ink: Color32,
+) {
+    let tab = Rect::from_min_size(rect.left_top() + vec2(0.0, 2.0), vec2(10.0, 6.0));
+    let body = Rect::from_min_max(
+        rect.left_top() + vec2(0.0, 5.0),
+        rect.right_bottom() - vec2(0.0, 1.0),
+    );
+    painter.rect_filled(tab, CornerRadius::same(2), fill);
+    painter.rect_filled(body, CornerRadius::same(4), fill);
+    painter.text(
+        body.center() + vec2(0.0, 1.0),
+        Align2::CENTER_CENTER,
+        initial,
+        FontId::monospace(11.0),
+        ink,
+    );
 }

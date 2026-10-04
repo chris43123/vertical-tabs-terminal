@@ -7,6 +7,7 @@ mod files;
 mod fuzzy;
 mod git;
 mod highlight;
+mod icons;
 mod input;
 mod keybinds;
 mod layout;
