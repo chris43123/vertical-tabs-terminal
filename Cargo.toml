@@ -6,7 +6,7 @@ description = "Vertical Tabs Terminal - a lightweight GPU-accelerated terminal w
 license = "MIT"
 
 [dependencies]
-eframe = { version = "0.36", default-features = false, features = ["wgpu", "default_fonts", "wayland", "x11"] }
+eframe = { version = "0.36", default-features = false, features = ["wgpu", "default_fonts", "wayland", "x11", "persistence"] }
 alacritty_terminal = "0.26"
 swash = "0.2"
 fontdb = "0.24"

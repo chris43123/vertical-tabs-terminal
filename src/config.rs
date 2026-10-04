@@ -34,6 +34,59 @@ pub struct Config {
     pub keybindings: HashMap<String, crate::keybinds::BindingConfig>,
     /// The files panel.
     pub files: FilesConfig,
+    /// Scale of the whole UI (sidebar, panels, previews and terminals). Ctrl+Shift+=/- at runtime.
+    pub ui_scale: f32,
+    /// Minimum WCAG contrast ratio between terminal text and its background (1 = off, max 21).
+    pub min_contrast: f32,
+    /// Turn off UI animations and cursor blinking.
+    pub reduce_motion: bool,
+    pub cursor: CursorConfig,
+    /// Width in points of the border drawn around the focused pane in a split (0 = none).
+    pub focus_border_width: f32,
+    /// What a bell (BEL) does.
+    pub bell: BellMode,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum CursorStyle {
+    #[default]
+    Block,
+    Beam,
+    Underline,
+}
+
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[serde(default)]
+pub struct CursorConfig {
+    /// Shape used until a program sets its own (e.g. vim's insert-mode beam).
+    pub style: CursorStyle,
+    /// Blink the cursor in the focused pane (never with `reduce_motion`).
+    pub blink: bool,
+    /// Multiplier for the beam/underline/outline thickness.
+    pub thickness: f32,
+}
+
+impl Default for CursorConfig {
+    fn default() -> Self {
+        Self {
+            style: CursorStyle::Block,
+            blink: false,
+            thickness: 1.0,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum BellMode {
+    /// Mark the tab in the sidebar.
+    #[default]
+    Badge,
+    /// Mark the tab and briefly flash the pane.
+    Flash,
+    /// Ignore bells.
+    None,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -67,6 +120,10 @@ pub struct FontConfig {
     pub family: Option<String>,
     /// Font size in points (logical pixels).
     pub size: f32,
+    /// Line height as a multiple of the font's natural height (1.0 = unchanged).
+    pub line_height: f32,
+    /// Extra space between characters, in points (may be negative).
+    pub letter_spacing: f32,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -103,6 +160,12 @@ impl Default for Config {
             editor: None,
             keybindings: HashMap::new(),
             files: FilesConfig::default(),
+            ui_scale: 1.0,
+            min_contrast: 1.0,
+            reduce_motion: false,
+            cursor: CursorConfig::default(),
+            focus_border_width: 1.0,
+            bell: BellMode::Badge,
         }
     }
 }
@@ -112,6 +175,8 @@ impl Default for FontConfig {
         Self {
             family: None,
             size: 14.0,
+            line_height: 1.0,
+            letter_spacing: 0.0,
         }
     }
 }

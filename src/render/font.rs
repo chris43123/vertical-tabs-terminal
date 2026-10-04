@@ -153,6 +153,42 @@ impl Atlas {
     }
 }
 
+/// More distinct sizes than this clears the metrics cache and atlas.
+const MAX_SIZES: usize = 16;
+
+/// Cell metrics for one font size (physical pixels).
+#[derive(Clone, Copy, Debug)]
+struct Metrics {
+    px: f32,
+    cell_w: u32,
+    cell_h: u32,
+    baseline: f32,
+    /// Horizontal glyph shift centering glyphs in the letter-spacing extra, per cell.
+    x_pad: f32,
+    /// Underline offset below the baseline and stroke thickness.
+    underline_pos: f32,
+    stroke: f32,
+    /// Strikeout offset above the baseline.
+    strike_pos: f32,
+}
+
+impl Metrics {
+    const EMPTY: Self = Self {
+        px: 0.0,
+        cell_w: 1,
+        cell_h: 1,
+        baseline: 0.0,
+        x_pad: 0.0,
+        underline_pos: 0.0,
+        stroke: 1.0,
+        strike_pos: 0.0,
+    };
+}
+
+fn size_key(size_pt: f32) -> u32 {
+    (size_pt * 64.0).round().max(0.0) as u32
+}
+
 pub struct Fonts {
     db: fontdb::Database,
     /// Primary faces indexed by `Style::index` (regular, bold, italic, bold-italic).
@@ -164,20 +200,19 @@ pub struct Fonts {
     full_scans_left: u32,
     scale_ctx: ScaleContext,
     atlas: Atlas,
-    glyphs: HashMap<(char, Style), Option<Glyph>>,
+    /// Keyed by char, style and size key; all sizes share one atlas.
+    glyphs: HashMap<(char, Style, u32), Option<Glyph>>,
     /// Set when the atlas had to be reset mid-frame; the caller should repaint.
     pub(crate) atlas_reset: bool,
 
-    size_pt: f32,
     ppp: f32,
-    cell_w: u32,
-    cell_h: u32,
-    baseline: f32,
-    /// Underline offset below the baseline and stroke thickness (physical px).
-    pub(crate) underline_pos: f32,
-    pub(crate) stroke: f32,
-    /// Strikeout offset above the baseline (physical px).
-    pub(crate) strike_pos: f32,
+    line_height: f32,
+    letter_spacing: f32,
+    /// Metrics per font size (`size_key`); cleared on DPI or spacing changes.
+    metrics: HashMap<u32, Metrics>,
+    /// Size key and metrics of the size selected by the last `update`.
+    active_key: u32,
+    active: Metrics,
 }
 
 impl Fonts {
@@ -266,54 +301,98 @@ impl Fonts {
             atlas: Atlas::new(ctx, INITIAL_ATLAS),
             glyphs: HashMap::new(),
             atlas_reset: false,
-            size_pt: 0.0,
             ppp: 0.0,
-            cell_w: 1,
-            cell_h: 1,
-            baseline: 0.0,
-            underline_pos: 0.0,
-            stroke: 1.0,
-            strike_pos: 0.0,
+            line_height: 1.0,
+            letter_spacing: 0.0,
+            metrics: HashMap::new(),
+            active_key: 0,
+            active: Metrics::EMPTY,
         };
         fonts.update(ctx, size_pt, ppp);
         fonts
     }
 
-    /// Rebuild metrics and the atlas when the font size or DPI scale changed.
+    /// Select the active font size (computing its metrics on first use). Cheap enough to call
+    /// per pane; the atlas is only reset when the DPI scale changes or too many sizes pile up.
     pub fn update(&mut self, ctx: &egui::Context, size_pt: f32, ppp: f32) {
-        if size_pt == self.size_pt && ppp == self.ppp {
+        if ppp != self.ppp {
+            self.ppp = ppp;
+            self.invalidate(ctx);
+        }
+        let key = size_key(size_pt);
+        if let Some(m) = self.metrics.get(&key) {
+            self.active_key = key;
+            self.active = *m;
             return;
         }
-        self.size_pt = size_pt;
-        self.ppp = ppp;
-        let px = size_pt * ppp;
+        if self.metrics.len() >= MAX_SIZES {
+            self.invalidate(ctx);
+        }
+        let m = self.compute_metrics(key as f32 / 64.0);
+        self.metrics.insert(key, m);
+        self.active_key = key;
+        self.active = m;
+    }
 
+    /// Set line height (multiplier) and letter spacing (points); rebuilds metrics on change.
+    pub fn set_spacing(&mut self, ctx: &egui::Context, line_height: f32, letter_spacing: f32) {
+        let line_height = line_height.clamp(0.8, 3.0);
+        let letter_spacing = letter_spacing.clamp(-2.0, 10.0);
+        if line_height == self.line_height && letter_spacing == self.letter_spacing {
+            return;
+        }
+        self.line_height = line_height;
+        self.letter_spacing = letter_spacing;
+        self.invalidate(ctx);
+        // Reselect the active size under the new spacing.
+        if self.ppp > 0.0 {
+            let size_pt = self.active_key as f32 / 64.0;
+            self.update(ctx, size_pt, self.ppp);
+        }
+    }
+
+    /// Drop all cached metrics and glyphs.
+    fn invalidate(&mut self, ctx: &egui::Context) {
+        self.metrics.clear();
+        self.reset_atlas(ctx, self.atlas.size);
+        self.atlas_reset = true;
+    }
+
+    fn compute_metrics(&self, size_pt: f32) -> Metrics {
+        let px = size_pt * self.ppp;
         let face = &self.faces[self.primary[0].unwrap_or(0)];
         let font = face.font();
-        let metrics = font.metrics(&[]).scale(px);
+        let fm = font.metrics(&[]).scale(px);
         let gid = font.charmap().map('0');
         let advance = font.glyph_metrics(&[]).scale(px).advance_width(gid);
 
-        let ascent = metrics.ascent.abs();
-        let descent = metrics.descent.abs();
-        self.cell_w = advance.round().max(1.0) as u32;
-        self.cell_h = (ascent + descent + metrics.leading.max(0.0))
-            .ceil()
-            .max(1.0) as u32;
-        self.baseline = (metrics.leading.max(0.0) / 2.0 + ascent).round();
-        self.stroke = (px / 14.0).round().max(1.0);
-        self.underline_pos = ((descent / 2.0).round()).clamp(
-            1.0,
-            (self.cell_h as f32 - self.baseline - self.stroke).max(0.0),
-        );
-        let x_height = if metrics.x_height > 0.0 {
-            metrics.x_height
+        let ascent = fm.ascent.abs();
+        let descent = fm.descent.abs();
+        let natural_w = advance.round().max(1.0);
+        let cell_w = (advance + self.letter_spacing * self.ppp).round().max(1.0);
+        let natural_h = (ascent + descent + fm.leading.max(0.0)).ceil().max(1.0);
+        let cell_h = (natural_h * self.line_height).ceil().max(1.0);
+        let baseline = (fm.leading.max(0.0) / 2.0 + ascent + (cell_h - natural_h) / 2.0)
+            .round()
+            .clamp(0.0, cell_h);
+        let stroke = (px / 14.0).round().max(1.0);
+        let underline_pos =
+            ((descent / 2.0).round()).clamp(1.0, (cell_h - baseline - stroke).max(0.0));
+        let x_height = if fm.x_height > 0.0 {
+            fm.x_height
         } else {
             ascent * 0.5
         };
-        self.strike_pos = (x_height / 2.0).round();
-
-        self.reset_atlas(ctx, self.atlas.size);
+        Metrics {
+            px,
+            cell_w: cell_w as u32,
+            cell_h: cell_h as u32,
+            baseline,
+            x_pad: ((cell_w - natural_w) / 2.0).round(),
+            underline_pos,
+            stroke,
+            strike_pos: (x_height / 2.0).round().min(baseline),
+        }
     }
 
     fn reset_atlas(&mut self, ctx: &egui::Context, size: usize) {
@@ -327,16 +406,34 @@ impl Fonts {
 
     /// Cell size in egui points, aligned to whole physical pixels.
     pub fn cell_size(&self) -> Vec2 {
-        Vec2::new(self.cell_w as f32 / self.ppp, self.cell_h as f32 / self.ppp)
+        Vec2::new(
+            self.active.cell_w as f32 / self.ppp,
+            self.active.cell_h as f32 / self.ppp,
+        )
     }
 
     /// Cell size in physical pixels.
     pub fn cell_px(&self) -> (u16, u16) {
-        (self.cell_w as u16, self.cell_h as u16)
+        (self.active.cell_w as u16, self.active.cell_h as u16)
     }
 
     pub(crate) fn baseline_px(&self) -> f32 {
-        self.baseline
+        self.active.baseline
+    }
+
+    /// Underline offset below the baseline (physical px).
+    pub(crate) fn underline_pos(&self) -> f32 {
+        self.active.underline_pos
+    }
+
+    /// Decoration stroke thickness (physical px).
+    pub(crate) fn stroke(&self) -> f32 {
+        self.active.stroke
+    }
+
+    /// Strikeout offset above the baseline (physical px).
+    pub(crate) fn strike_pos(&self) -> f32 {
+        self.active.strike_pos
     }
 
     pub(crate) fn texture_id(&self) -> egui::TextureId {
@@ -362,11 +459,13 @@ impl Fonts {
         style: Style,
         span: u32,
     ) -> Option<Glyph> {
-        if let Some(g) = self.glyphs.get(&(c, style)) {
+        let key = (c, style, self.active_key);
+        if let Some(g) = self.glyphs.get(&key) {
             return *g;
         }
         let g = self.rasterize(ctx, c, style, span);
-        self.glyphs.insert((c, style), g);
+        // Rasterizing may have reset the atlas (clearing `glyphs`); inserting is still correct.
+        self.glyphs.insert(key, g);
         g
     }
 
@@ -445,7 +544,8 @@ impl Fonts {
         span: u32,
     ) -> Option<Glyph> {
         let (face_idx, embolden) = self.face_for(c, style)?;
-        let px = self.size_pt * self.ppp;
+        let m = self.active;
+        let px = m.px;
         let face = &self.faces[face_idx];
         let font = face.font();
         let gid = font.charmap().map(c);
@@ -487,8 +587,8 @@ impl Fonts {
                     .map(|&a| Color32::from_white_alpha(a))
                     .collect();
                 let offset = Vec2::new(
-                    image.placement.left as f32,
-                    self.baseline - image.placement.top as f32,
+                    image.placement.left as f32 + m.x_pad * span as f32,
+                    m.baseline - image.placement.top as f32,
                 );
                 (
                     ColorImage::new([w, h], pixels),
@@ -500,8 +600,8 @@ impl Fonts {
             Content::SubpixelMask | Content::Color => {
                 let img = ColorImage::from_rgba_unmultiplied([w, h], &image.data);
                 let offset = Vec2::new(
-                    image.placement.left as f32,
-                    self.baseline - image.placement.top as f32,
+                    image.placement.left as f32 + m.x_pad * span as f32,
+                    m.baseline - image.placement.top as f32,
                 );
                 (
                     img,
@@ -514,7 +614,7 @@ impl Fonts {
 
         // Color bitmaps (emoji strikes) are often far larger than a cell: fit them into `span` cells.
         if is_color {
-            let (max_w, max_h) = ((self.cell_w * span) as f32, self.cell_h as f32);
+            let (max_w, max_h) = ((m.cell_w * span) as f32, m.cell_h as f32);
             if size.x > max_w || size.y > max_h {
                 let scale = (max_w / size.x).min(max_h / size.y);
                 let (nw, nh) = (

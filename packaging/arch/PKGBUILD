@@ -5,7 +5,7 @@
 # makepkg rewrites pkgver= below on every build; that change doesn't need committing.
 
 pkgname=vtt-git
-pkgver=0.1.0.r0.g0000000
+pkgver=0.1.0.r11.g7b1c9b0
 pkgrel=1
 pkgdesc='Lightweight GPU-accelerated terminal with vertical tabs, a files panel and file previews'
 arch=('x86_64' 'aarch64')

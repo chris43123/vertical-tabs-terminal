@@ -11,7 +11,7 @@ use alacritty_terminal::grid::Scroll;
 use alacritty_terminal::vte::ansi::Rgb;
 use eframe::egui::{self, Color32, Key, Modifiers};
 
-use crate::config::Config;
+use crate::config::{BellMode, Config};
 use crate::files::FileTree;
 use crate::highlight::Highlighter;
 use crate::keybinds::{Action, Keybinds};
@@ -30,6 +30,10 @@ pub enum Content {
     Preview(Box<Preview>),
 }
 
+/// Bounds of a pane's font size in points.
+const MIN_FONT: f32 = 6.0;
+const MAX_FONT: f32 = 48.0;
+
 pub struct Tab {
     pub content: Content,
     /// For previews: a synthetic profile carrying the file name and type icon.
@@ -44,13 +48,22 @@ pub struct Tab {
     pub activity: bool,
     /// Bell rang while the tab wasn't focused.
     pub bell: bool,
+    /// When a visual bell last rang in this pane (`bell = "flash"`).
+    pub bell_flash: Option<Instant>,
     /// Last cwd seen, used to start new tabs in the same directory.
     pub cwd: Option<PathBuf>,
     /// Foreground process name, from the last poll.
     pub process: Option<String>,
+    /// Zoom of this pane in points, relative to the base font size (not persisted).
+    pub zoom: f32,
 }
 
 impl Tab {
+    /// Font size in points of this pane, given the base size.
+    pub fn font_size(&self, base: f32) -> f32 {
+        (base + self.zoom).clamp(MIN_FONT, MAX_FONT)
+    }
+
     fn new(content: Content, profile: Profile) -> Self {
         Self {
             content,
@@ -60,8 +73,10 @@ impl Tab {
             custom_title: None,
             activity: false,
             bell: false,
+            bell_flash: None,
             cwd: None,
             process: None,
+            zoom: 0.0,
         }
     }
 
@@ -150,6 +165,8 @@ pub struct App {
     shell_patch: Patch,
     watcher: Watcher,
     pub font_size: f32,
+    /// Whole-UI zoom factor (egui's zoom), separate from the terminal `font_size`.
+    pub ui_zoom: f32,
     pub keybinds: Keybinds,
 
     tx: Sender<(TabId, TermEvent)>,
@@ -159,6 +176,15 @@ pub struct App {
     pub sidebar_collapsed: bool,
     /// Collapsed sidebar temporarily shown expanded because the pointer hovers it.
     pub sidebar_peek: bool,
+    /// Sidebar and files panel both hidden (Ctrl+B).
+    pub side_hidden: bool,
+    /// Zen mode: the sidebar is revealed by touching the left window edge.
+    pub zen_peek: bool,
+    /// What the zen overlay shows: the files panel (true) or the tabs.
+    pub zen_files: bool,
+    /// The pointer has entered the zen overlay since it opened (a keyboard-opened overlay
+    /// stays up until then).
+    pub zen_hovered_once: bool,
     /// Tab or folder currently being renamed, with the edit buffer.
     pub renaming: Option<(RenameTarget, String)>,
     /// Pane rects of the active view from the last frame (for directional pane focus).
@@ -169,13 +195,22 @@ pub struct App {
     pub scroll_to_focused: bool,
     /// The tab switcher / command palette, when open.
     pub switcher: Option<crate::ui::Switcher>,
+    /// The keyboard shortcuts window.
+    pub help: Option<crate::ui::Help>,
     closed: Vec<ClosedTab>,
     /// Focused tab as of the last frame, and the one before it.
     last_focused: Option<TabId>,
     pub prev_focused: Option<TabId>,
 
     clipboard: Option<arboard::Clipboard>,
+    /// A V key press reached us as a key event (i.e. it wasn't eaten as a paste shortcut).
+    v_press_seen: bool,
+    /// A paste event arrived since the last V release.
+    paste_seen: bool,
     last_poll: Instant,
+    /// Start of the cursor blink cycle; reset on input and focus so the cursor shows while typing.
+    pub blink_epoch: Instant,
+    window_focused: bool,
     window_title: String,
     /// Config/theme problems shown in the banner until fixed or dismissed.
     pub problems: Vec<String>,
@@ -219,15 +254,19 @@ impl App {
         let chrome = UiColors::from_theme(&resolved.theme);
         let palette = Palette::from_theme(&resolved.theme);
         apply_style(&ctx, &chrome);
+        apply_motion(&ctx, config.reduce_motion);
         let watcher = Watcher::spawn(watch_paths(resolved.file), ctx.clone());
 
+        let ui_zoom = restored_ui_zoom(cc.storage, config.ui_scale);
+        ctx.set_zoom_factor(ui_zoom);
         let font_size = config.font.size;
-        let fonts = Fonts::new(
+        let mut fonts = Fonts::new(
             &ctx,
             config.font.family.as_deref(),
             font_size,
             ctx.pixels_per_point(),
         );
+        fonts.set_spacing(&ctx, config.font.line_height, config.font.letter_spacing);
         let (tx, rx) = channel();
         let keybinds = Keybinds::new(&config.keybindings);
         egui_extras::install_image_loaders(&ctx);
@@ -251,21 +290,31 @@ impl App {
             shell_patch: Patch::default(),
             watcher,
             font_size,
+            ui_zoom,
             keybinds,
             tx,
             rx,
             ctx,
             sidebar_peek: false,
+            side_hidden: false,
+            zen_peek: false,
+            zen_files: false,
+            zen_hovered_once: false,
             renaming: None,
             pane_rects: Vec::new(),
             scroll_accum: 0.0,
             scroll_to_focused: false,
             switcher: None,
+            help: None,
             closed: Vec::new(),
             last_focused: None,
             prev_focused: None,
             clipboard: arboard::Clipboard::new().ok(),
+            v_press_seen: false,
+            paste_seen: false,
             last_poll: Instant::now() - Duration::from_secs(10),
+            blink_epoch: Instant::now(),
+            window_focused: true,
             window_title: String::new(),
             problems: Vec::new(),
             problems_dismissed: false,
@@ -335,7 +384,7 @@ impl App {
         let session = match Session::spawn(
             id,
             &profile,
-            self.config.scrollback,
+            crate::session::term_config(self.config.scrollback, &self.config.cursor),
             size,
             self.fonts.cell_px(),
             cwd,
@@ -431,6 +480,7 @@ impl App {
             .unwrap_or_default();
         self.renaming = Some((RenameTarget::Tab(id), current));
         self.scroll_to_focused = true;
+        self.side_hidden = false;
         if self.sidebar_collapsed {
             self.sidebar_peek = true;
         }
@@ -441,6 +491,7 @@ impl App {
         let name = format!("Group {}", self.ws.groups.len() + 1);
         if let Some(g) = self.ws.new_group(id, name.clone()) {
             self.renaming = Some((RenameTarget::Group(g), name));
+            self.side_hidden = false;
             if self.sidebar_collapsed {
                 self.sidebar_peek = true;
             }
@@ -609,6 +660,7 @@ impl App {
         let focused = self.ws.focused();
         let mut exited = Vec::new();
         let mut woke = Vec::new();
+        let bell_mode = self.config.bell;
         while let Ok((id, event)) = self.rx.try_recv() {
             let Some(tab) = self.tabs.get_mut(&id) else {
                 continue;
@@ -623,8 +675,14 @@ impl App {
                     }
                 }
                 TermEvent::Bell => {
-                    if focused != Some(id) {
-                        tab.bell = true;
+                    if bell_mode != BellMode::None {
+                        if focused != Some(id) {
+                            tab.bell = true;
+                        }
+                        // A visual bell shows even in the focused pane.
+                        if bell_mode == BellMode::Flash && visible.contains(&id) {
+                            tab.bell_flash = Some(Instant::now());
+                        }
                     }
                 }
                 TermEvent::Title(t) => tab.osc_title = Some(t),
@@ -659,6 +717,10 @@ impl App {
                     }
                 }
                 TermEvent::TextAreaSizeRequest(format) => {
+                    // Report the cell size of this pane's own zoom.
+                    let size_pt = tab.font_size(self.font_size);
+                    self.fonts
+                        .update(&self.ctx, size_pt, self.ctx.pixels_per_point());
                     let (cw, ch) = self.fonts.cell_px();
                     let session = tab.session().unwrap();
                     let size = session.size;
@@ -681,7 +743,7 @@ impl App {
         }
         // A `cd` is followed by a new prompt, so the focused shell printing is the moment to
         // check whether its cwd moved. Throttled, since output can arrive every frame.
-        if self.files_open
+        if self.files_visible()
             && focused.is_some_and(|f| woke.contains(&f))
             && self.last_cwd_check.elapsed() >= Duration::from_millis(150)
         {
@@ -751,9 +813,15 @@ impl App {
         }
     }
 
+    /// Set the whole-UI zoom (clamped, rounded to 2 decimals) and apply it to egui.
+    fn set_ui_zoom(&mut self, zoom: f32) {
+        self.ui_zoom = ((zoom * 100.0).round() / 100.0).clamp(0.5, 3.0);
+        self.ctx.set_zoom_factor(self.ui_zoom);
+    }
+
     /// Re-read the config (and theme) after a file changed. A broken config is reported and
     /// ignored, so a half-saved edit doesn't wipe your settings.
-    fn reload_config(&mut self) {
+    pub(crate) fn reload_config(&mut self) {
         // Everything gets re-evaluated; problems that still exist are reported again.
         self.problems.clear();
         self.problems_dismissed = false;
@@ -776,6 +844,26 @@ impl App {
                 self.font_size,
                 self.ctx.pixels_per_point(),
             );
+        }
+        if new.font.family != old.font.family
+            || new.font.line_height != old.font.line_height
+            || new.font.letter_spacing != old.font.letter_spacing
+        {
+            self.fonts
+                .set_spacing(&self.ctx, new.font.line_height, new.font.letter_spacing);
+        }
+        if new.reduce_motion != old.reduce_motion {
+            apply_motion(&self.ctx, new.reduce_motion);
+        }
+        if new.cursor != old.cursor || new.scrollback != old.scrollback {
+            let options = crate::session::term_config(new.scrollback, &new.cursor);
+            for session in self.tabs.values().filter_map(Tab::session) {
+                session.term.lock().set_options(options.clone());
+            }
+        }
+        if new.ui_scale != old.ui_scale {
+            self.ui_zoom = new.ui_scale.clamp(0.5, 3.0);
+            self.ctx.set_zoom_factor(self.ui_zoom);
         }
         if new.font.size != old.font.size {
             self.font_size = new.font.size;
@@ -861,12 +949,17 @@ impl App {
     /// About once a second while they're on screen: refresh auto titles, re-list changed
     /// folders in the files panel, and reload previews whose file changed.
     fn poll(&mut self) {
-        let sidebar_visible = !self.sidebar_collapsed || self.sidebar_peek;
+        let sidebar_visible = if self.side_hidden {
+            self.zen_peek && !self.zen_files
+        } else {
+            !self.sidebar_collapsed || self.sidebar_peek
+        };
+        let files_visible = self.files_visible();
         let visible = self.ws.visible();
         let previews_visible = visible
             .iter()
             .any(|id| self.tabs.get(id).is_some_and(|t| t.preview().is_some()));
-        if !sidebar_visible && !self.files_open && !previews_visible {
+        if !sidebar_visible && !files_visible && !previews_visible {
             return;
         }
         if self.last_poll.elapsed() >= Duration::from_secs(1) {
@@ -884,7 +977,7 @@ impl App {
                     }
                 }
             }
-            if self.files_open {
+            if files_visible {
                 self.follow_cwd();
                 self.files.refresh();
                 self.git.tick(&self.ctx, false);
@@ -902,6 +995,31 @@ impl App {
             }
         }
         self.ctx.request_repaint_after(Duration::from_secs(1));
+    }
+
+    /// The files tree is on screen: as the side panel, or as the zen overlay.
+    fn files_visible(&self) -> bool {
+        if self.side_hidden {
+            self.zen_peek && self.zen_files
+        } else {
+            self.files_open
+        }
+    }
+
+    /// Zen mode: show the overlay with the files panel (`files`) or the tabs, right away and
+    /// until the pointer has visited it and left again.
+    pub(crate) fn zen_show(&mut self, files: bool) {
+        self.zen_files = files;
+        self.zen_peek = true;
+        self.zen_hovered_once = false;
+        if files {
+            self.follow_cwd();
+        }
+    }
+
+    /// Ctrl+\ in zen mode: switch the overlay between tabs and files.
+    pub(crate) fn zen_toggle_files(&mut self) {
+        self.zen_show(!(self.zen_peek && self.zen_files));
     }
 
     /// Point the files panel at the focused shell's cwd when it changes (after `cd`).
@@ -985,6 +1103,7 @@ impl App {
                 self.prev_focused = self.last_focused;
             }
             self.last_focused = focused;
+            self.blink_epoch = Instant::now();
         }
     }
 
@@ -1028,6 +1147,11 @@ impl App {
             Action::ToggleSidebar => {
                 self.sidebar_collapsed = !self.sidebar_collapsed;
                 self.sidebar_peek = false;
+                self.side_hidden = false;
+            }
+            Action::ToggleSideArea => {
+                self.side_hidden = !self.side_hidden;
+                self.sidebar_peek = false;
             }
             Action::ReopenClosedTab => self.reopen_closed_tab(),
             Action::DuplicateTab => {
@@ -1069,10 +1193,21 @@ impl App {
             }
             Action::NextActivity => self.next_activity(),
             Action::CommandPalette => self.switcher = Some(crate::ui::Switcher::default()),
+            Action::ShowHelp => self.help = Some(crate::ui::Help::default()),
             Action::OpenSettings => self.open_settings(),
-            Action::ToggleFiles => self.files_open = !self.files_open,
+            Action::ToggleFiles => {
+                if self.side_hidden {
+                    self.zen_toggle_files();
+                } else {
+                    self.files_open = !self.files_open;
+                }
+            }
             Action::SearchFiles => {
-                self.files_open = true;
+                if self.side_hidden {
+                    self.zen_show(true);
+                } else {
+                    self.files_open = true;
+                }
                 self.focus_search = true;
             }
             Action::NewGroup => {
@@ -1092,9 +1227,19 @@ impl App {
                     return false;
                 }
             }
-            Action::ZoomIn => self.font_size = (self.font_size + 1.0).min(48.0),
-            Action::ZoomOut => self.font_size = (self.font_size - 1.0).max(6.0),
-            Action::ZoomReset => self.font_size = self.config.font.size,
+            Action::ZoomIn | Action::ZoomOut | Action::ZoomReset => {
+                let base = self.font_size;
+                if let Some(tab) = self.ws.focused().and_then(|f| self.tabs.get_mut(&f)) {
+                    tab.zoom = match action {
+                        Action::ZoomIn => (tab.zoom + 1.0).min(MAX_FONT - base),
+                        Action::ZoomOut => (tab.zoom - 1.0).max(MIN_FONT - base),
+                        _ => 0.0,
+                    };
+                }
+            }
+            Action::UiZoomIn => self.set_ui_zoom(self.ui_zoom * 1.1),
+            Action::UiZoomOut => self.set_ui_zoom(self.ui_zoom / 1.1),
+            Action::UiZoomReset => self.set_ui_zoom(self.config.ui_scale),
             Action::ScrollPageUp | Action::ScrollPageDown => {
                 if let Some(session) = self.focused_session() {
                     let scroll = if action == Action::ScrollPageUp {
@@ -1142,6 +1287,7 @@ impl App {
     fn handle_keyboard(&mut self) {
         if self.renaming.is_some()
             || self.switcher.is_some()
+            || self.help.is_some()
             || self.ctx.egui_wants_keyboard_input()
         {
             return;
@@ -1164,12 +1310,13 @@ impl App {
                     ..
                 } => {
                     swallow_text = false;
+                    self.v_press_seen |= key == egui::Key::V;
                     if self.handle_shortcut(key, physical_key, modifiers) {
                         swallow_text = true;
                         continue;
                     }
                     // Keys typed after opening the switcher or a rename box belong to that text field.
-                    if self.switcher.is_some() || self.renaming.is_some() {
+                    if self.switcher.is_some() || self.renaming.is_some() || self.help.is_some() {
                         break;
                     }
                     let Some(session) = self.focused_session() else {
@@ -1184,7 +1331,9 @@ impl App {
                     swallow_text = false;
                     swallowed.push(index);
                 }
-                _ if self.switcher.is_some() || self.renaming.is_some() => break,
+                _ if self.switcher.is_some() || self.renaming.is_some() || self.help.is_some() => {
+                    break;
+                }
                 egui::Event::Text(text) => {
                     let bytes = crate::input::encode_text(&text, mods);
                     self.send_input(bytes);
@@ -1201,7 +1350,28 @@ impl App {
                         self.send_input(vec![0x18]);
                     }
                 }
-                egui::Event::Paste(text) => self.paste(&text),
+                egui::Event::Paste(text) => {
+                    self.paste_seen = true;
+                    self.paste(&text);
+                }
+                // egui-winit swallows Ctrl+V and only emits a paste when the clipboard holds
+                // text. A V release with neither a press nor a paste before it means the
+                // clipboard had something else (an image): pass ^V on, so programs like
+                // Claude Code read the clipboard themselves.
+                egui::Event::Key {
+                    key: egui::Key::V,
+                    pressed: false,
+                    modifiers,
+                    ..
+                } => {
+                    if !std::mem::take(&mut self.v_press_seen)
+                        && !std::mem::take(&mut self.paste_seen)
+                        && !modifiers.shift
+                    {
+                        self.send_input(vec![0x16]);
+                    }
+                    self.paste_seen = false;
+                }
                 _ => {}
             }
         }
@@ -1216,6 +1386,13 @@ impl App {
         }
     }
 
+    /// Font size in points of pane `id` (the base size plus its own zoom).
+    pub fn pane_font_size(&self, id: TabId) -> f32 {
+        self.tabs
+            .get(&id)
+            .map_or(self.font_size, |t| t.font_size(self.font_size))
+    }
+
     fn focused_session(&self) -> Option<&Session> {
         self.ws
             .focused()
@@ -1225,6 +1402,7 @@ impl App {
 
     /// Write user input to the focused tab, snapping the view back to the bottom.
     fn send_input(&mut self, bytes: Vec<u8>) {
+        self.blink_epoch = Instant::now();
         if let Some(session) = self.focused_session() {
             {
                 let mut term = session.term.lock();
@@ -1278,11 +1456,51 @@ impl App {
     }
 }
 
+const UI_ZOOM_KEY: &str = "ui_zoom";
+
+/// The runtime UI zoom (Ctrl+Shift+=/-), saved across restarts together with the
+/// `ui_scale` it was based on, so editing `ui_scale` in the config still takes effect.
+#[derive(serde::Serialize, serde::Deserialize)]
+struct SavedUiZoom {
+    zoom: f32,
+    ui_scale: f32,
+}
+
+fn restored_ui_zoom(storage: Option<&dyn eframe::Storage>, ui_scale: f32) -> f32 {
+    let saved = storage.and_then(|s| eframe::get_value::<SavedUiZoom>(s, UI_ZOOM_KEY));
+    match saved {
+        Some(saved) if saved.ui_scale == ui_scale => saved.zoom,
+        _ => ui_scale,
+    }
+    .clamp(0.5, 3.0)
+}
+
 impl eframe::App for App {
+    /// Only the window geometry and UI zoom are persisted;
+    /// egui's memory would restore stale focus/scroll state.
+    fn persist_egui_memory(&self) -> bool {
+        false
+    }
+
+    fn save(&mut self, storage: &mut dyn eframe::Storage) {
+        eframe::set_value(
+            storage,
+            UI_ZOOM_KEY,
+            &SavedUiZoom {
+                zoom: self.ui_zoom,
+                ui_scale: self.config.ui_scale,
+            },
+        );
+    }
+
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         let ctx = ui.ctx().clone();
         // Buttons must never keep keyboard focus: Space/Enter belong to the terminal.
-        if self.renaming.is_none() && self.switcher.is_none() && !self.search_focused {
+        if self.renaming.is_none()
+            && self.switcher.is_none()
+            && self.help.is_none()
+            && !self.search_focused
+        {
             ctx.memory_mut(|m| {
                 if let Some(id) = m.focused() {
                     m.surrender_focus(id);
@@ -1291,6 +1509,11 @@ impl eframe::App for App {
         }
         self.fonts
             .update(&ctx, self.font_size, ctx.pixels_per_point());
+        let window_focused = ctx.input(|i| i.focused);
+        if window_focused && !self.window_focused {
+            self.blink_epoch = Instant::now();
+        }
+        self.window_focused = window_focused;
         if self.watcher.changed() {
             self.reload_config();
         }
@@ -1304,12 +1527,19 @@ impl eframe::App for App {
             return;
         }
 
-        self.sidebar(ui);
-        if self.files_open {
-            self.files_panel(ui);
+        if self.side_hidden {
+            let area = ui.available_rect_before_wrap();
+            self.zen_sidebar(&ctx, area);
+        } else {
+            self.zen_peek = false;
+            self.sidebar(ui);
+            if self.files_open {
+                self.files_panel(ui);
+            }
         }
         self.panes(ui);
         self.switcher_ui(&ctx);
+        self.help_ui(&ctx);
         self.problems_banner(&ctx);
         self.track_focus();
         self.update_window_title();
@@ -1365,6 +1595,20 @@ fn apply_style(ctx: &egui::Context, c: &UiColors) {
     visuals.selection.bg_fill = mix(c.accent, c.bg, 0.55);
     visuals.hyperlink_color = c.accent;
     ctx.set_visuals(visuals);
+}
+
+/// Animations off (instant transitions and scrolling) or back to egui's defaults.
+fn apply_motion(ctx: &egui::Context, reduce: bool) {
+    let default = egui::Style::default();
+    ctx.global_style_mut(|s| {
+        if reduce {
+            s.animation_time = 0.0;
+            s.scroll_animation = egui::style::ScrollAnimation::none();
+        } else {
+            s.animation_time = default.animation_time;
+            s.scroll_animation = default.scroll_animation;
+        }
+    });
 }
 
 /// Files whose changes trigger a live reload: the config, plus the active theme file.

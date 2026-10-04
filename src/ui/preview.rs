@@ -43,7 +43,9 @@ impl App {
 
         let hl = self.highlighter();
         let (syntax_theme, generation) = (self.syntax_theme.clone(), self.theme_generation);
-        let font_size = self.font_size;
+        // Pane zoom; markdown looks as before at zoom 0 whatever the base size.
+        let font_size = self.pane_font_size(id);
+        let scale = font_size / self.font_size;
         let ctx = ui.ctx().clone();
         let Some(preview) = self.tabs.get_mut(&id).and_then(|t| t.preview_mut()) else {
             return;
@@ -61,7 +63,7 @@ impl App {
                 let base = preview.path.parent().map(Path::to_path_buf);
                 let scroll_id = ("preview_md", id, preview.version);
                 let blocks = preview.markdown.clone();
-                self.markdown(ui, scroll_id, &blocks, base.as_deref());
+                self.markdown(ui, scroll_id, &blocks, base.as_deref(), scale);
             }
             Body::Markdown(text) | Body::Code(text) => {
                 let view = CodeView {
@@ -126,6 +128,7 @@ impl App {
         scroll_id: impl std::hash::Hash + std::fmt::Debug,
         blocks: &[Block],
         base: Option<&Path>,
+        s: f32,
     ) {
         let cache = self.md_cache.get_or_insert_with(Default::default);
         if self.md_theme_generation != self.theme_generation {
@@ -154,17 +157,17 @@ impl App {
         let style = ui.style_mut();
         style
             .text_styles
-            .insert(TextStyle::Body, FontId::proportional(15.0));
+            .insert(TextStyle::Body, FontId::proportional(15.0 * s));
         style
             .text_styles
-            .insert(TextStyle::Heading, FontId::proportional(30.0));
+            .insert(TextStyle::Heading, FontId::proportional(30.0 * s));
         style
             .text_styles
-            .insert(TextStyle::Monospace, FontId::monospace(13.5));
+            .insert(TextStyle::Monospace, FontId::monospace(13.5 * s));
         style
             .text_styles
-            .insert(TextStyle::Button, FontId::proportional(15.0));
-        style.spacing.item_spacing = vec2(8.0, 8.0);
+            .insert(TextStyle::Button, FontId::proportional(15.0 * s));
+        style.spacing.item_spacing = vec2(8.0, 8.0) * s;
         // Everything wraps to the column; nothing scrolls sideways.
         style.wrap_mode = Some(egui::TextWrapMode::Wrap);
         let c = self.chrome.clone();
@@ -176,15 +179,15 @@ impl App {
                 // A centered column of readable width, with side padding on narrow panes.
                 let full = ui.available_width();
                 let padding = if full < 500.0 { 14.0 } else { 28.0 };
-                let width = (full - 2.0 * padding).clamp(1.0, MARKDOWN_WIDTH);
+                let width = (full - 2.0 * padding).clamp(1.0, MARKDOWN_WIDTH * s);
                 let margin = ((full - width) / 2.0).max(0.0);
                 ui.horizontal_top(|ui| {
                     ui.add_space(margin);
                     ui.vertical(|ui| {
                         ui.set_width(width);
-                        ui.add_space(20.0);
-                        md_blocks(ui, blocks, cache, &viewer, &c);
-                        ui.add_space(40.0);
+                        ui.add_space(20.0 * s);
+                        md_blocks(ui, blocks, cache, &viewer, &c, s);
+                        ui.add_space(40.0 * s);
                     });
                 });
             });
@@ -198,6 +201,7 @@ fn md_blocks(
     cache: &mut egui_commonmark::CommonMarkCache,
     viewer: &dyn Fn(f32) -> egui_commonmark::CommonMarkViewer<'static>,
     c: &crate::theme::UiColors,
+    s: f32,
 ) {
     for (i, block) in blocks.iter().enumerate() {
         ui.push_id(i, |ui| match block {
@@ -205,28 +209,31 @@ fn md_blocks(
                 viewer(ui.available_width()).show(ui, cache, text);
             }
             Block::Table(table) => {
-                md_table(ui, table, cache, viewer, c);
-                ui.add_space(8.0);
+                md_table(ui, table, cache, viewer, c, s);
+                ui.add_space(8.0 * s);
             }
-            Block::List(list) => md_list(ui, list, cache, viewer, c),
+            Block::List(list) => md_list(ui, list, cache, viewer, c, s),
             Block::Quote(inner) => {
                 // A bar down the left, like egui_commonmark's own quotes.
                 let response = egui::Frame::new()
                     .inner_margin(egui::Margin {
-                        left: 12,
+                        left: (12.0 * s).round() as i8,
                         right: 0,
-                        top: 2,
-                        bottom: 2,
+                        top: (2.0 * s).round() as i8,
+                        bottom: (2.0 * s).round() as i8,
                     })
                     .show(ui, |ui| {
                         ui.set_width(ui.available_width());
-                        md_blocks(ui, inner, cache, viewer, c);
+                        md_blocks(ui, inner, cache, viewer, c, s);
                     })
                     .response;
                 let r = response.rect;
-                ui.painter()
-                    .vline(r.left() + 2.0, r.y_range(), Stroke::new(3.0, c.raised(0.2)));
-                ui.add_space(8.0);
+                ui.painter().vline(
+                    r.left() + 2.0 * s,
+                    r.y_range(),
+                    Stroke::new(3.0 * s, c.raised(0.2)),
+                );
+                ui.add_space(8.0 * s);
             }
         });
     }
@@ -240,35 +247,41 @@ fn md_list(
     cache: &mut egui_commonmark::CommonMarkCache,
     viewer: &dyn Fn(f32) -> egui_commonmark::CommonMarkViewer<'static>,
     c: &crate::theme::UiColors,
+    s: f32,
 ) {
     let row = ui.text_style_height(&TextStyle::Body);
-    let marker_width = if list.start.is_some() { 30.0 } else { 22.0 };
+    let marker_width = s * if list.start.is_some() { 30.0 } else { 22.0 };
     let text = ui.visuals().text_color();
     for (i, item) in list.items.iter().enumerate() {
         ui.push_id(("item", i), |ui| {
             ui.horizontal_top(|ui| {
                 ui.spacing_mut().item_spacing.x = 0.0;
                 let (rect, _) = ui.allocate_exact_size(vec2(marker_width, row), Sense::hover());
-                let center = egui::pos2(rect.right() - 10.0, rect.top() + row / 2.0);
+                let center = egui::pos2(rect.right() - 10.0 * s, rect.top() + row / 2.0);
                 let painter = ui.painter();
                 match (item.task, list.start) {
                     (Some(checked), _) => {
-                        let b = egui::Rect::from_center_size(center, vec2(12.0, 12.0));
-                        painter.rect_stroke(b, 3, Stroke::new(1.2, text), egui::StrokeKind::Inside);
+                        let b = egui::Rect::from_center_size(center, vec2(12.0, 12.0) * s);
+                        painter.rect_stroke(
+                            b,
+                            3,
+                            Stroke::new(1.2 * s, text),
+                            egui::StrokeKind::Inside,
+                        );
                         if checked {
                             painter.line(
                                 vec![
-                                    b.left_center() + vec2(2.5, 0.0),
-                                    b.center_bottom() + vec2(-1.0, -3.0),
-                                    b.right_top() + vec2(-2.5, 3.0),
+                                    b.left_center() + vec2(2.5, 0.0) * s,
+                                    b.center_bottom() + vec2(-1.0, -3.0) * s,
+                                    b.right_top() + vec2(-2.5, 3.0) * s,
                                 ],
-                                Stroke::new(1.6, c.accent),
+                                Stroke::new(1.6 * s, c.accent),
                             );
                         }
                     }
                     (None, Some(first)) => {
                         painter.text(
-                            egui::pos2(rect.right() - 6.0, rect.top() + row / 2.0),
+                            egui::pos2(rect.right() - 6.0 * s, rect.top() + row / 2.0),
                             egui::Align2::RIGHT_CENTER,
                             format!("{}.", first + i as u64),
                             TextStyle::Body.resolve(ui.style()),
@@ -276,18 +289,18 @@ fn md_list(
                         );
                     }
                     (None, None) => {
-                        painter.circle_filled(center, 2.5, text);
+                        painter.circle_filled(center, 2.5 * s, text);
                     }
                 }
                 ui.vertical(|ui| {
                     ui.set_width(ui.available_width());
-                    ui.spacing_mut().item_spacing.y = 4.0;
-                    md_blocks(ui, &item.blocks, cache, viewer, c);
+                    ui.spacing_mut().item_spacing.y = 4.0 * s;
+                    md_blocks(ui, &item.blocks, cache, viewer, c, s);
                 });
             });
         });
     }
-    ui.add_space(6.0);
+    ui.add_space(6.0 * s);
 }
 
 /// A markdown table that fits its column: widths come from the content, wide columns wrap.
@@ -298,8 +311,9 @@ fn md_table(
     cache: &mut egui_commonmark::CommonMarkCache,
     viewer: &dyn Fn(f32) -> egui_commonmark::CommonMarkViewer<'static>,
     c: &crate::theme::UiColors,
+    s: f32,
 ) {
-    const PAD: f32 = 8.0;
+    let pad = 8.0 * s;
     let columns = table
         .rows
         .iter()
@@ -324,8 +338,8 @@ fn md_table(
                 })
                 .fold(0.0, f32::max)
                 // Padding, plus slack for bold headers and code-span frames.
-                + 2.0 * PAD
-                + 12.0
+                + 2.0 * pad
+                + 12.0 * s
         })
         .collect();
     let border = 1.0;
@@ -356,11 +370,14 @@ fn md_table(
                             |ui| {
                                 ui.set_width(w);
                                 egui::Frame::new()
-                                    .inner_margin(egui::Margin::symmetric(PAD as i8, 5))
+                                    .inner_margin(egui::Margin::symmetric(
+                                        pad.round() as i8,
+                                        (5.0 * s).round() as i8,
+                                    ))
                                     .show(ui, |ui| {
-                                        let inner = (w - 2.0 * PAD).max(1.0);
+                                        let inner = (w - 2.0 * pad).max(1.0);
                                         ui.set_width(inner);
-                                        ui.spacing_mut().item_spacing = vec2(4.0, 2.0);
+                                        ui.spacing_mut().item_spacing = vec2(4.0, 2.0) * s;
                                         ui.push_id((r, col), |ui| {
                                             viewer(inner).show(ui, cache, &text);
                                         });

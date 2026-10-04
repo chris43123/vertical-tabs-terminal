@@ -18,7 +18,7 @@ Inspired by Warp, minus the weight: Warp's good ideas (a file tree that follows 
 
 ## Features
 
-- **Vertical tabs.** The sidebar can be collapsed to an icon strip.
+- **Vertical tabs.** The sidebar can be collapsed to an icon strip, or hidden entirely (zen mode, `Ctrl+B`) and peeked by hovering the left window edge (`Ctrl+\` in zen mode switches the peek between tabs and files).
 - **Folders.** Group tabs into named, colored folders that collapse, Zen-style (see [Folders](#folders)).
 - **Files panel.** A file tree of the focused shell's directory sits between the tabs and the terminals, and follows you as you `cd` (see [Files and previews](#files-and-previews)).
 - **File previews.** Click a file to open it in a pane next to the terminal: rendered Markdown, syntax-highlighted code and JSON, images.
@@ -36,6 +36,7 @@ Inspired by Warp, minus the weight: Warp's good ideas (a file tree that follows 
   - Drop in the **center** to swap the tab into that pane.
   - Each pane in a split has a header with `—` to **minimise** it (the pane goes back to being a standalone tab and the session stays alive) and `×` to **close** it.
   - Drag the dividers to resize panes.
+- **Accessibility.** Zoom the whole UI or a single pane, minimum text contrast, line height and letter spacing, cursor shape/blink/thickness, reduced motion, a focus border for splits and an optional visual bell.
 - **Small footprint.** The app redraws only when something changes, so it uses about 0% CPU when idle.
 - Runs on Linux (Wayland/X11), Windows (ConPTY) and macOS.
 
@@ -64,8 +65,9 @@ On Linux and Windows, vtt only binds the shortcuts terminals conventionally use 
 | Move tab (or its split group) up / down | — | `⌘⇧↑` / `⌘⇧↓` |
 | Split right / down with a new tab | — | `⌘D` / `⌘⇧D` |
 | Minimise pane back to its own tab | — | `⌘⇧M` |
-| Toggle sidebar collapse | — | `⌘B` |
-| Toggle files panel | `Ctrl+Shift+E` | `⌘⇧E` |
+| Toggle sidebar collapse | — | — |
+| Zen mode: hide sidebar and files panel (hover the left edge to peek; `Ctrl+\` while in zen switches the peek between tabs and files) | `Ctrl+B` | `⌘B` |
+| Toggle files panel | `Ctrl+\` or `Ctrl+Shift+E` | `⌘\` or `⌘⇧E` |
 | New folder with the focused tab | — | — |
 | Search files (in the files panel) | — | — |
 | Duplicate tab | — | — |
@@ -74,9 +76,11 @@ On Linux and Windows, vtt only binds the shortcuts terminals conventionally use 
 
 | Action | Linux / Windows | macOS |
 |---|---|---|
-| Font zoom in / out / reset | `Ctrl+=` / `Ctrl+-` / `Ctrl+0` | `⌘=` / `⌘-` / `⌘0` |
+| Zoom focused pane in / out / reset | `Ctrl+=` / `Ctrl+-` / `Ctrl+0` | `⌘=` / `⌘-` / `⌘0` |
+| Zoom whole UI in / out / reset | `Ctrl+Shift+=` / `Ctrl+Shift+-` / `Ctrl+Shift+0` | `⌘⇧=` / `⌘⇧-` / `⌘⇧0` |
 | Scroll back | `Shift+PageUp` / `Shift+PageDown` | same |
 | Open settings file | `Ctrl+,` | `⌘,` |
+| Keyboard shortcuts: every shortcut and mouse gesture, click one to rebind it | `Ctrl+Shift+/` (`Ctrl+?`) | `⌘⇧/` (`⌘?`) |
 | Copy / paste | `Ctrl+Shift+C` / `Ctrl+Shift+V`, plus `Ctrl+V` | `⌘C` / `⌘V` |
 
 `Ctrl+C` copies when text is selected; otherwise it sends an interrupt as usual. Pane-focus and next/previous-tab keys pass through to the shell when there is nothing to move to (a single tab, or no pane in that direction).
@@ -87,11 +91,13 @@ On Linux and Windows, vtt only binds the shortcuts terminals conventionally use 
 
 Every shortcut can be changed in the `[keybindings]` section of the config (see below). Setting an action replaces all of its defaults. Use a list for several chords, and `[]` to unbind it. Modifiers are `ctrl`, `shift`, `alt` and `cmd` (macOS only). Keys are letters, digits, `f1`–`f24`, `tab`, `enter`, `space`, `pageup`, `pagedown`, `home`, `end`, `left`/`right`/`up`/`down`, `plus`, `minus`, `equals`, `[`, `]` and similar.
 
-Actions: `new_tab`, `close_tab`, `reopen_closed_tab`, `duplicate_tab`, `rename_tab`, `split_right`, `split_down`, `minimize_pane`, `toggle_sidebar`, `next_tab`, `prev_tab`, `move_tab_up`, `move_tab_down`, `goto_tab_1` … `goto_tab_9`, `last_tab`, `next_activity`, `command_palette`, `toggle_files`, `search_files`, `new_group`, `open_settings`, `focus_left`, `focus_right`, `focus_up`, `focus_down`, `zoom_in`, `zoom_out`, `zoom_reset`, `scroll_page_up`, `scroll_page_down`.
+Actions: `new_tab`, `close_tab`, `reopen_closed_tab`, `duplicate_tab`, `rename_tab`, `split_right`, `split_down`, `minimize_pane`, `toggle_sidebar`, `toggle_side_area`, `next_tab`, `prev_tab`, `move_tab_up`, `move_tab_down`, `goto_tab_1` … `goto_tab_9`, `last_tab`, `next_activity`, `command_palette`, `toggle_files`, `search_files`, `new_group`, `open_settings`, `focus_left`, `focus_right`, `focus_up`, `focus_down`, `zoom_in`, `zoom_out`, `zoom_reset`, `ui_zoom_in`, `ui_zoom_out`, `ui_zoom_reset`, `scroll_page_up`, `scroll_page_down`, `show_help`.
+
+The easiest way to rebind is the **keyboard shortcuts** window (`Ctrl+Shift+/`). Click a shortcut and press the new one (`Backspace` removes it, `Esc` cancels), or `+` to add another. It writes the `[keybindings]` line for you and keeps the rest of the file as it is. Shortcuts bound to more than one action are shown in red.
 
 ## Files and previews
 
-The files panel (`Ctrl+Shift+E`, `⌘⇧E` on macOS, or 🗀 in the sidebar header) shows the directory of the focused shell. When you `cd`, it follows. Switching tabs shows that tab's directory.
+The files panel (`Ctrl+\` or `Ctrl+Shift+E`, `⌘\` or `⌘⇧E` on macOS, or 🗀 in the sidebar header) shows the directory of the focused shell. When you `cd`, it follows. Switching tabs shows that tab's directory.
 
 - **Click a folder** to expand it; **double-click** it to `cd` the shell there. If a program is running in the shell, a new tab opens in that folder instead of typing into the program.
 - **Click a file** to preview it in a pane beside the terminal. Clicking other files reuses that pane, so previews don't pile up. Keyboard focus stays in the terminal.
@@ -210,10 +216,42 @@ adopt_shell_palette = false
 # Terminal editors open in a new vtt tab.
 # editor = "nvim"
 
+# Scale of the whole UI: sidebar, files panel, previews and terminals.
+# Change it at runtime with Ctrl+Shift+= / Ctrl+Shift+- / Ctrl+Shift+0; the runtime
+# zoom is remembered across restarts until you change this value.
+ui_scale = 1.0
+
+# Minimum contrast ratio between terminal text and its background (WCAG: 4.5 is AA, 7 is AAA).
+# Text below it is lightened or darkened to reach it. 1.0 turns this off.
+min_contrast = 1.0
+
+# Turn off UI animations, smooth scrolling and cursor blinking.
+reduce_motion = false
+
+# Width in points of the accent border around the focused pane in a split (0 for none).
+focus_border_width = 1.0
+
+# What a terminal bell does: "badge" marks the tab in the sidebar, "flash" also flashes
+# the pane, "none" ignores it.
+bell = "badge"
+
 [font]
 # Font family; defaults to the system monospace font.
 # family = "JetBrains Mono"
+# Ctrl+= / Ctrl+- / Ctrl+0 zoom just the focused pane (terminal or preview).
 size = 14.0
+# Line height as a multiple of the font's own (e.g. 1.2 for more space between lines).
+line_height = 1.0
+# Extra space between characters, in points (may be negative).
+letter_spacing = 0.0
+
+[cursor]
+# Shape when the program doesn't choose one: "block", "beam" or "underline".
+style = "block"
+# Blink the cursor (programs may also ask for blinking; never with reduce_motion).
+blink = false
+# Thickness multiplier for beam, underline and the unfocused outline.
+thickness = 1.0
 
 [files]
 # Show the files panel (between the tabs and the terminals) at startup. Toggle: Ctrl+Shift+E.

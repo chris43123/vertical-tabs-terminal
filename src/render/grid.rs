@@ -133,6 +133,69 @@ impl Builder {
     }
 }
 
+/// Per-frame rendering options from the config.
+#[derive(Clone, Copy, Debug)]
+pub struct TermOpts {
+    pub min_contrast: f32,
+    pub cursor_thickness: f32,
+    /// False during the "off" phase of a blinking cursor.
+    pub cursor_visible: bool,
+}
+
+/// WCAG relative luminance (sRGB linearized).
+fn luminance(c: Color32) -> f32 {
+    let lin = |v: u8| {
+        let v = v as f32 / 255.0;
+        if v <= 0.04045 {
+            v / 12.92
+        } else {
+            ((v + 0.055) / 1.055).powf(2.4)
+        }
+    };
+    0.2126 * lin(c.r()) + 0.7152 * lin(c.g()) + 0.0722 * lin(c.b())
+}
+
+/// WCAG contrast ratio (1..=21) between two colors.
+fn contrast_ratio(a: Color32, b: Color32) -> f32 {
+    let (la, lb) = (luminance(a), luminance(b));
+    (la.max(lb) + 0.05) / (la.min(lb) + 0.05)
+}
+
+/// Move `fg` toward white or black until it reaches `ratio` against `bg`.
+/// Returns `fg` unchanged when it already qualifies or `ratio <= 1`.
+fn ensure_contrast(fg: Color32, bg: Color32, ratio: f32) -> Color32 {
+    let ratio = ratio.clamp(1.0, 21.0);
+    if ratio <= 1.0 || contrast_ratio(fg, bg) >= ratio {
+        return fg;
+    }
+    let mix = |t: f32, to: u8| {
+        let f = |v: u8| (v as f32 + (to as f32 - v as f32) * t).round() as u8;
+        Color32::from_rgb(f(fg.r()), f(fg.g()), f(fg.b()))
+    };
+    // Prefer the direction away from the background; fall back to the other
+    // one if it cannot reach the target.
+    let first = if luminance(bg) > 0.179 { 0 } else { 255 };
+    let reach = |to: u8| contrast_ratio(mix(1.0, to), bg);
+    let to = if reach(first) >= ratio || reach(first) >= reach(255 - first) {
+        first
+    } else {
+        255 - first
+    };
+    if reach(to) < ratio {
+        return mix(1.0, to);
+    }
+    let (mut lo, mut hi) = (0.0f32, 1.0f32);
+    for _ in 0..8 {
+        let m = (lo + hi) / 2.0;
+        if contrast_ratio(mix(m, to), bg) >= ratio {
+            hi = m;
+        } else {
+            lo = m;
+        }
+    }
+    mix(hi, to)
+}
+
 /// Paint the visible terminal grid into `rect` as a single mesh.
 pub fn paint_terminal(
     painter: &egui::Painter,
@@ -141,6 +204,7 @@ pub fn paint_terminal(
     fonts: &mut Fonts,
     palette: &Palette,
     focused: bool,
+    opts: &TermOpts,
 ) {
     let ctx = painter.ctx().clone();
     let ppp = fonts.ppp();
@@ -181,7 +245,12 @@ pub fn paint_terminal(
         .unwrap_or(palette.cursor);
     let cursor_line = content.cursor.point.line.0 + display_offset;
     let cursor_col = content.cursor.point.column.0;
-    let cursor_shape = content.cursor.shape;
+    let mut cursor_shape = content.cursor.shape;
+    if focused && !opts.cursor_visible {
+        cursor_shape = CursorShape::Hidden;
+    }
+    let thickness = opts.cursor_thickness.clamp(0.5, 4.0);
+    let min_contrast = opts.min_contrast.clamp(1.0, 21.0);
     let block_cursor = focused && cursor_shape == CursorShape::Block;
     let mut cursor_wide = false;
 
@@ -248,6 +317,8 @@ pub fn paint_terminal(
         }
         if flags.contains(Flags::HIDDEN) {
             fgc = bgc;
+        } else if min_contrast > 1.0 {
+            fgc = ensure_contrast(fgc, bgc, min_contrast);
         }
 
         // Background run.
@@ -300,14 +371,14 @@ pub fn paint_terminal(
                 .underline_color()
                 .map(|c| resolve(c, colors, palette))
                 .unwrap_or(fgc);
-            let uy = y + baseline + fonts.underline_pos;
-            fg.rect_px(x, uy, cw * span, fonts.stroke, uc);
+            let uy = y + baseline + fonts.underline_pos();
+            fg.rect_px(x, uy, cw * span, fonts.stroke(), uc);
             if flags.contains(Flags::DOUBLE_UNDERLINE) {
                 fg.rect_px(
                     x,
-                    (uy + fonts.stroke * 2.0).min(y + ch - fonts.stroke),
+                    (uy + fonts.stroke() * 2.0).min(y + ch - fonts.stroke()),
                     cw * span,
-                    fonts.stroke,
+                    fonts.stroke(),
                     uc,
                 );
             }
@@ -315,9 +386,9 @@ pub fn paint_terminal(
         if flags.contains(Flags::STRIKEOUT) {
             fg.rect_px(
                 x,
-                y + baseline - fonts.strike_pos,
+                y + baseline - fonts.strike_pos(),
                 cw * span,
-                fonts.stroke,
+                fonts.stroke(),
                 fgc,
             );
         }
@@ -329,7 +400,7 @@ pub fn paint_terminal(
         let x = cursor_col as f32 * cw;
         let y = cursor_line as f32 * ch;
         let w = if cursor_wide { cw * 2.0 } else { cw };
-        let t = (ppp.round()).max(1.0) * fonts.stroke.max(1.0);
+        let t = (ppp.round()).max(1.0) * fonts.stroke().max(1.0) * thickness;
         let shape = if !focused && cursor_shape != CursorShape::Hidden {
             CursorShape::HollowBlock
         } else {
@@ -515,6 +586,33 @@ fn line_arms(code: u32) -> Option<[u8; 4]> {
 mod tests {
     use super::*;
     use eframe::egui::vec2;
+
+    #[test]
+    fn contrast_gray_on_gray_reaches_target() {
+        let bg = Color32::from_rgb(110, 110, 110);
+        let fg = Color32::from_rgb(120, 120, 120);
+        let out = ensure_contrast(fg, bg, 4.5);
+        assert!(contrast_ratio(out, bg) >= 4.5);
+    }
+
+    #[test]
+    fn contrast_sufficient_unchanged_and_off_is_noop() {
+        let (w, k) = (Color32::WHITE, Color32::BLACK);
+        assert_eq!(ensure_contrast(w, k, 7.0), w);
+        let a = Color32::from_rgb(100, 100, 100);
+        assert_eq!(ensure_contrast(a, a, 1.0), a);
+        assert!((contrast_ratio(w, k) - 21.0).abs() < 0.01);
+    }
+
+    #[test]
+    fn contrast_flips_direction_when_needed() {
+        // Mid-gray background: pushing toward the brighter side can't reach 7.
+        let bg = Color32::from_rgb(130, 130, 130);
+        let out = ensure_contrast(Color32::from_rgb(140, 140, 140), bg, 4.5);
+        assert!(contrast_ratio(out, bg) >= 4.5);
+        let out = ensure_contrast(Color32::from_rgb(10, 20, 30), Color32::BLACK, 21.0);
+        assert_eq!(out, Color32::WHITE);
+    }
 
     #[test]
     fn color_cube_and_grayscale() {

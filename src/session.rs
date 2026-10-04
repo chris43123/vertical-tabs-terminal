@@ -12,6 +12,7 @@ use alacritty_terminal::sync::FairMutex;
 use alacritty_terminal::term::{self, Term};
 use alacritty_terminal::tty;
 
+use crate::config::{CursorConfig, CursorStyle};
 use crate::profiles::Profile;
 
 pub type TabId = u64;
@@ -67,7 +68,7 @@ impl Session {
     pub fn spawn(
         id: TabId,
         profile: &Profile,
-        scrollback: usize,
+        term_config: term::Config,
         size: GridSize,
         cell_px: (u16, u16),
         cwd: Option<std::path::PathBuf>,
@@ -104,11 +105,11 @@ impl Session {
         let child_pid = pty.child_watcher().pid().map(|p| p.get());
 
         let listener = Listener { id, tx, ctx };
-        let config = term::Config {
-            scrolling_history: scrollback,
-            ..Default::default()
-        };
-        let term = Arc::new(FairMutex::new(Term::new(config, &size, listener.clone())));
+        let term = Arc::new(FairMutex::new(Term::new(
+            term_config,
+            &size,
+            listener.clone(),
+        )));
 
         let pty = crate::pty::FilteredPty::new(pty);
         let event_loop = EventLoop::new(term.clone(), listener, pty, true, false)?;
@@ -143,6 +144,25 @@ impl Drop for Session {
     fn drop(&mut self) {
         // Stops the IO thread, which drops the PTY and hangs up the child.
         let _ = self.notifier.0.send(Msg::Shutdown);
+    }
+}
+
+/// Terminal options from the config. `default_cursor_style` is what the cursor returns to
+/// until (or after) a program sets its own, so the configured shape and blink apply exactly.
+pub fn term_config(scrollback: usize, cursor: &CursorConfig) -> term::Config {
+    use alacritty_terminal::vte::ansi::{CursorShape, CursorStyle as TermCursor};
+    let shape = match cursor.style {
+        CursorStyle::Block => CursorShape::Block,
+        CursorStyle::Beam => CursorShape::Beam,
+        CursorStyle::Underline => CursorShape::Underline,
+    };
+    term::Config {
+        scrolling_history: scrollback,
+        default_cursor_style: TermCursor {
+            shape,
+            blinking: cursor.blink,
+        },
+        ..Default::default()
     }
 }
 

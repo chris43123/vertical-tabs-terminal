@@ -21,6 +21,8 @@ pub enum Action {
     /// Pull the focused pane out of its split into its own tab.
     MinimizePane,
     ToggleSidebar,
+    /// Hide or show the whole side area (sidebar and files panel), like VS Code's Ctrl+B.
+    ToggleSideArea,
     NextTab,
     PrevTab,
     /// Move the focused tab (or its whole split group) one step up/down the sidebar.
@@ -46,8 +48,13 @@ pub enum Action {
     ZoomIn,
     ZoomOut,
     ZoomReset,
+    UiZoomIn,
+    UiZoomOut,
+    UiZoomReset,
     ScrollPageUp,
     ScrollPageDown,
+    /// The keyboard shortcuts window (also where they're rebound).
+    ShowHelp,
 }
 
 /// Config name and human label of every action (except `GotoTab`, which is numbered).
@@ -73,6 +80,11 @@ pub const ACTIONS: &[(&str, &str, Action)] = &[
         Action::MinimizePane,
     ),
     ("toggle_sidebar", "Toggle sidebar", Action::ToggleSidebar),
+    (
+        "toggle_side_area",
+        "Zen mode (hide sidebar and files)",
+        Action::ToggleSideArea,
+    ),
     ("next_tab", "Next tab", Action::NextTab),
     ("prev_tab", "Previous tab", Action::PrevTab),
     ("move_tab_up", "Move tab up", Action::MoveTabUp),
@@ -96,18 +108,46 @@ pub const ACTIONS: &[(&str, &str, Action)] = &[
     ("focus_right", "Focus pane right", Action::FocusRight),
     ("focus_up", "Focus pane above", Action::FocusUp),
     ("focus_down", "Focus pane below", Action::FocusDown),
-    ("zoom_in", "Zoom in", Action::ZoomIn),
-    ("zoom_out", "Zoom out", Action::ZoomOut),
-    ("zoom_reset", "Reset zoom", Action::ZoomReset),
+    ("zoom_in", "Zoom pane in", Action::ZoomIn),
+    ("zoom_out", "Zoom pane out", Action::ZoomOut),
+    ("zoom_reset", "Reset pane zoom", Action::ZoomReset),
+    ("ui_zoom_in", "Zoom whole UI in", Action::UiZoomIn),
+    ("ui_zoom_out", "Zoom whole UI out", Action::UiZoomOut),
+    ("ui_zoom_reset", "Reset UI zoom", Action::UiZoomReset),
     ("scroll_page_up", "Scroll up one page", Action::ScrollPageUp),
     (
         "scroll_page_down",
         "Scroll down one page",
         Action::ScrollPageDown,
     ),
+    ("show_help", "Keyboard shortcuts", Action::ShowHelp),
 ];
 
 impl Action {
+    /// Name used in the `[keybindings]` config table.
+    pub fn config_name(self) -> String {
+        match self {
+            Self::GotoTab(n) => format!("goto_tab_{n}"),
+            _ => ACTIONS
+                .iter()
+                .find(|(_, _, a)| *a == self)
+                .map(|(n, _, _)| n.to_string())
+                .unwrap_or_default(),
+        }
+    }
+
+    /// Human label, e.g. "New tab" or "Go to tab 3".
+    pub fn label(self) -> String {
+        match self {
+            Self::GotoTab(n) => format!("Go to tab {n}"),
+            _ => ACTIONS
+                .iter()
+                .find(|(_, _, a)| *a == self)
+                .map(|(_, l, _)| l.to_string())
+                .unwrap_or_default(),
+        }
+    }
+
     fn from_name(name: &str) -> Option<Self> {
         if let Some(&(_, _, a)) = ACTIONS.iter().find(|(n, _, _)| *n == name) {
             return Some(a);
@@ -163,6 +203,47 @@ impl Chord {
             }
         }
         Ok(chord)
+    }
+
+    /// A chord from a key press, as the shortcuts window records it. With Shift held the
+    /// physical key is used, so Ctrl+Shift+/ is stored as `ctrl+shift+slash`, not `?`.
+    pub fn from_press(key: Key, physical: Option<Key>, m: Modifiers) -> Self {
+        let key = if m.shift {
+            physical.unwrap_or(key)
+        } else {
+            key
+        };
+        Chord {
+            key,
+            ctrl: m.ctrl,
+            shift: m.shift,
+            alt: m.alt,
+            cmd: m.mac_cmd,
+        }
+    }
+
+    /// Config form, e.g. "ctrl+shift+t"; parses back to the same chord.
+    pub fn to_config(&self) -> String {
+        let mut out = String::new();
+        for (on, name) in [
+            (self.ctrl, "ctrl+"),
+            (self.alt, "alt+"),
+            (self.shift, "shift+"),
+            (self.cmd, "cmd+"),
+        ] {
+            if on {
+                out.push_str(name);
+            }
+        }
+        out + &self.key.name().to_ascii_lowercase()
+    }
+
+    /// True for chords that would swallow ordinary typing (no modifier, not a function key).
+    pub fn is_bare(&self) -> bool {
+        !(self.ctrl
+            || self.alt
+            || self.cmd
+            || self.key.name().starts_with('F') && self.key.name().len() > 1)
     }
 
     fn matches(&self, key: Key, m: Modifiers) -> bool {
@@ -243,8 +324,11 @@ fn parse_key(name: &str) -> Option<Key> {
                 }
                 _ => {}
             }
-            // F1-F24 and anything else egui knows by name (e.g. "F5").
-            return Key::from_name(&name.to_ascii_uppercase()).or_else(|| Key::from_name(name));
+            // F1-F24 and anything else egui knows by name, in any case (e.g. "f5", "openbracket").
+            return Key::ALL
+                .iter()
+                .copied()
+                .find(|k| k.name().eq_ignore_ascii_case(name));
         }
     };
     Some(key)
@@ -274,6 +358,8 @@ impl BindingConfig {
 pub struct Keybinds {
     /// Checked in order; user overrides come first so they win over conflicting defaults.
     bindings: Vec<(Chord, Action)>,
+    /// Actions set in the config (their defaults are replaced).
+    overridden: Vec<Action>,
 }
 
 impl Keybinds {
@@ -298,7 +384,31 @@ impl Keybinds {
             .filter(|(_, a)| !overridden.contains(a));
         Self {
             bindings: user_bindings.into_iter().chain(defaults).collect(),
+            overridden,
         }
+    }
+
+    /// Every chord bound to `action`, in config order.
+    pub fn chords(&self, action: Action) -> Vec<Chord> {
+        self.bindings
+            .iter()
+            .filter(|(_, a)| *a == action)
+            .map(|(c, _)| *c)
+            .collect()
+    }
+
+    /// Whether the config sets `action` (rather than using the defaults).
+    pub fn is_overridden(&self, action: Action) -> bool {
+        self.overridden.contains(&action)
+    }
+
+    /// Other actions also bound to `chord` (the first binding wins when pressed).
+    pub fn conflicts(&self, chord: Chord, action: Action) -> Vec<Action> {
+        self.bindings
+            .iter()
+            .filter(|(c, a)| *c == chord && *a != action)
+            .map(|(_, a)| *a)
+            .collect()
     }
 
     /// Match the logical key first, then the physical key (so e.g. Cmd+Shift+] still matches
@@ -349,7 +459,8 @@ fn default_specs(macos: bool) -> Vec<(String, Action)> {
             ("cmd+d", SplitRight),
             ("cmd+shift+d", SplitDown),
             ("cmd+shift+m", MinimizePane), // Cmd+M minimises the window on macOS.
-            ("cmd+b", ToggleSidebar),
+            ("cmd+b", ToggleSideArea),
+            ("cmd+backslash", ToggleFiles),
             ("cmd+down", NextTab),
             ("cmd+up", PrevTab),
             ("cmd+shift+]", NextTab),
@@ -368,9 +479,13 @@ fn default_specs(macos: bool) -> Vec<(String, Action)> {
             ("cmd+alt+down", FocusDown),
             ("cmd+equals", ZoomIn),
             ("cmd+plus", ZoomIn),
-            ("cmd+shift+plus", ZoomIn),
             ("cmd+minus", ZoomOut),
             ("cmd+0", ZoomReset),
+            ("cmd+shift+plus", UiZoomIn),
+            ("cmd+shift+equals", UiZoomIn),
+            ("cmd+shift+minus", UiZoomOut),
+            ("cmd+shift+0", UiZoomReset),
+            ("cmd+shift+slash", ShowHelp),
         ]
     } else {
         vec![
@@ -378,12 +493,19 @@ fn default_specs(macos: bool) -> Vec<(String, Action)> {
             ("ctrl+shift+w", CloseTab),
             ("ctrl+shift+p", CommandPalette),
             ("ctrl+shift+e", ToggleFiles),
+            ("ctrl+backslash", ToggleFiles),
+            ("ctrl+b", ToggleSideArea),
             ("ctrl+comma", OpenSettings),
             ("ctrl+equals", ZoomIn),
             ("ctrl+plus", ZoomIn),
-            ("ctrl+shift+plus", ZoomIn),
             ("ctrl+minus", ZoomOut),
             ("ctrl+0", ZoomReset),
+            ("ctrl+shift+plus", UiZoomIn),
+            ("ctrl+shift+equals", UiZoomIn),
+            ("ctrl+shift+minus", UiZoomOut),
+            ("ctrl+shift+0", UiZoomReset),
+            // Ctrl+? (Ctrl+/ itself is readline's undo).
+            ("ctrl+shift+slash", ShowHelp),
         ]
     };
     list.extend([
@@ -441,6 +563,36 @@ mod tests {
             kb.lookup(Key::Semicolon, None, mods(true, false, false)),
             None
         );
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    #[test]
+    fn ui_zoom_bindings() {
+        let kb = Keybinds::new(&HashMap::new());
+        let cs = mods(true, true, false);
+        assert_eq!(kb.lookup_l(Key::Plus, cs), Some(Action::UiZoomIn));
+        assert_eq!(kb.lookup_l(Key::Equals, cs), Some(Action::UiZoomIn));
+        assert_eq!(
+            kb.lookup(Key::Semicolon, Some(Key::Minus), cs),
+            Some(Action::UiZoomOut)
+        );
+        assert_eq!(
+            kb.lookup(Key::Semicolon, Some(Key::Num0), cs),
+            Some(Action::UiZoomReset)
+        );
+        assert_eq!(
+            kb.lookup_l(Key::Equals, mods(true, false, false)),
+            Some(Action::ZoomIn)
+        );
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    #[test]
+    fn side_area_bindings() {
+        let kb = Keybinds::new(&HashMap::new());
+        let c = mods(true, false, false);
+        assert_eq!(kb.lookup_l(Key::B, c), Some(Action::ToggleSideArea));
+        assert_eq!(kb.lookup_l(Key::Backslash, c), Some(Action::ToggleFiles));
     }
 
     #[test]
@@ -556,5 +708,50 @@ mod tests {
         .unwrap();
         assert_eq!(map["new_tab"].chords(), vec!["ctrl+t"]);
         assert_eq!(map["next_tab"].chords().len(), 2);
+    }
+
+    #[test]
+    fn chord_config_round_trips() {
+        for &key in Key::ALL {
+            let chord = Chord {
+                key,
+                ctrl: true,
+                shift: true,
+                alt: false,
+                cmd: false,
+            };
+            assert_eq!(
+                Chord::parse_for(&chord.to_config(), false),
+                Ok(chord),
+                "{}",
+                chord.to_config()
+            );
+        }
+    }
+
+    #[test]
+    fn action_names_round_trip() {
+        for &(name, _, action) in ACTIONS {
+            assert_eq!(action.config_name(), name);
+            assert_eq!(Action::from_name(name), Some(action));
+        }
+        assert_eq!(Action::GotoTab(3).config_name(), "goto_tab_3");
+        assert_eq!(Action::GotoTab(3).label(), "Go to tab 3");
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    #[test]
+    fn help_is_ctrl_question_mark() {
+        // Shift turns `/` into `?`; the physical key still matches.
+        let kb = Keybinds::new(&HashMap::new());
+        assert_eq!(
+            kb.lookup(Key::Questionmark, Some(Key::Slash), mods(true, true, false)),
+            Some(Action::ShowHelp)
+        );
+        let chord = Chord::from_press(Key::Questionmark, Some(Key::Slash), mods(true, true, false));
+        assert_eq!(chord.to_config(), "ctrl+shift+slash");
+        assert!(!chord.is_bare());
+        assert!(Chord::parse("f5").unwrap().is_bare() == false);
+        assert!(Chord::parse("shift+a").unwrap().is_bare());
     }
 }

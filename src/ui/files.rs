@@ -39,12 +39,28 @@ enum Action {
 }
 
 impl App {
-    pub(crate) fn files_panel(&mut self, ui: &mut Ui) {
+    /// Point the tree (and git status) at the followed folder before drawing it.
+    fn files_prepare(&mut self, ctx: &egui::Context) {
         self.sync_files_root();
         if let Some(root) = self.files.root().map(Path::to_path_buf) {
-            let ctx = ui.ctx().clone();
-            self.git.set_dir(&root, &ctx);
+            self.git.set_dir(&root, ctx);
         }
+    }
+
+    /// The files panel's contents inside the zen overlay (its frame is drawn by the caller).
+    pub(crate) fn files_overlay_contents(&mut self, ui: &mut Ui) {
+        let ctx = ui.ctx().clone();
+        self.files_prepare(&ctx);
+        let mut actions = Vec::new();
+        self.files_contents(ui, &mut actions);
+        for action in actions {
+            self.apply_file_action(action);
+        }
+    }
+
+    pub(crate) fn files_panel(&mut self, ui: &mut Ui) {
+        let ctx = ui.ctx().clone();
+        self.files_prepare(&ctx);
         let c = self.chrome.clone();
         let fill = mix(c.sidebar, c.bg, 0.45);
         let mut actions = Vec::new();
@@ -510,6 +526,7 @@ impl App {
             }
             Action::ToggleHidden => self.files.show_hidden = !self.files.show_hidden,
             Action::CollapseAll => self.files.collapse_all(),
+            Action::Close if self.side_hidden => self.zen_files = false,
             Action::Close => self.files_open = false,
         }
     }

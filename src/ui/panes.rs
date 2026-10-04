@@ -3,6 +3,8 @@
 //! Preview tabs render through `preview.rs`; files dragged from the tree split a pane to show
 //! them, or type their path into a terminal.
 
+use std::time::Duration;
+
 use alacritty_terminal::grid::Scroll;
 use alacritty_terminal::index::{Column, Line, Point};
 use alacritty_terminal::selection::{Selection, SelectionType};
@@ -21,6 +23,23 @@ use crate::session::TabId;
 
 const HEADER_HEIGHT: f32 = 24.0;
 const PADDING: f32 = 4.0;
+
+/// Cursor blink half-period: on for this long, then off for this long.
+const BLINK_HALF: Duration = Duration::from_millis(530);
+/// Visual bell flash length: a fade, or a constant overlay with `reduce_motion`.
+const FLASH_FADE: f32 = 0.2;
+const FLASH_STEADY: f32 = 0.15;
+
+/// Whether a blinking cursor is in its visible phase `elapsed` after the last reset.
+fn blink_on(elapsed: Duration) -> bool {
+    (elapsed.as_millis() / BLINK_HALF.as_millis()).is_multiple_of(2)
+}
+
+/// Time until the cursor next changes phase.
+fn until_toggle(elapsed: Duration) -> Duration {
+    let half = BLINK_HALF.as_millis();
+    Duration::from_millis((half - elapsed.as_millis() % half) as u64)
+}
 
 enum PaneAction {
     Focus(TabId),
@@ -139,6 +158,7 @@ impl App {
                 ui.painter().rect_filled(body, 0.0, term_bg);
             }
             self.preview_pane(ui, id, body);
+            self.pane_overlays(ui, id, rect, body, split, focused);
             if split && !focused {
                 ui.painter().rect_filled(
                     body,
@@ -157,6 +177,9 @@ impl App {
         }
         let inner = body.shrink2(vec2(PADDING + 2.0, PADDING));
 
+        // Select this pane's size for everything below (grid, mouse, painting).
+        let (pane_size, ppp) = (self.pane_font_size(id), ui.ctx().pixels_per_point());
+        self.fonts.update(ui.ctx(), pane_size, ppp);
         let Some(session) = self.tabs.get_mut(&id).and_then(|t| t.session_mut()) else {
             return;
         };
@@ -177,6 +200,16 @@ impl App {
         };
         {
             let term = session.term.lock();
+            // Blink only while this pane is the one being typed into, and never with
+            // reduce_motion. Repaints are scheduled for the next toggle only, so an idle
+            // or unfocused window sleeps.
+            let active = focused && window_focused;
+            let blinking = active && !self.config.reduce_motion && term.cursor_style().blinking;
+            let elapsed = self.blink_epoch.elapsed();
+            let cursor_visible = !blinking || blink_on(elapsed);
+            if blinking {
+                ui.ctx().request_repaint_after(until_toggle(elapsed));
+            }
             paint_terminal(
                 &ui.painter_at(inner),
                 inner,
@@ -184,6 +217,11 @@ impl App {
                 &mut self.fonts,
                 &self.palette,
                 focused && window_focused,
+                &crate::render::TermOpts {
+                    min_contrast: self.config.min_contrast,
+                    cursor_thickness: self.config.cursor.thickness,
+                    cursor_visible,
+                },
             );
         }
         // Dim inactive panes a little so the focused one stands out.
@@ -200,8 +238,67 @@ impl App {
             );
         }
 
+        self.pane_overlays(ui, id, rect, body, split, focused);
         self.drop_zone(ui, id, rect, actions);
         self.file_drop(ui, id, rect, actions);
+    }
+
+    /// Drawn over a finished pane: the visual bell flash and, in splits, the focus border.
+    fn pane_overlays(
+        &mut self,
+        ui: &Ui,
+        id: TabId,
+        rect: Rect,
+        body: Rect,
+        split: bool,
+        focused: bool,
+    ) {
+        let radius = if split {
+            CornerRadius {
+                nw: 0,
+                ne: 0,
+                sw: 6,
+                se: 6,
+            }
+        } else {
+            CornerRadius::ZERO
+        };
+        let reduce = self.config.reduce_motion;
+        if let Some(tab) = self.tabs.get_mut(&id)
+            && let Some(start) = tab.bell_flash
+        {
+            let t = start.elapsed().as_secs_f32();
+            let (len, strength) = if reduce {
+                (FLASH_STEADY, 1.0)
+            } else {
+                (FLASH_FADE, 1.0 - t / FLASH_FADE)
+            };
+            if t >= len {
+                tab.bell_flash = None;
+            } else {
+                ui.painter().rect_filled(
+                    body,
+                    radius,
+                    self.chrome.fg.gamma_multiply(0.2 * strength),
+                );
+                if reduce {
+                    // One repaint to take the overlay off again.
+                    ui.ctx()
+                        .request_repaint_after(Duration::from_secs_f32(len - t));
+                } else {
+                    ui.ctx().request_repaint();
+                }
+            }
+        }
+        let width = self.config.focus_border_width.clamp(0.0, 6.0);
+        if split && focused && width > 0.0 {
+            ui.painter().rect_stroke(
+                rect,
+                CornerRadius::same(6),
+                Stroke::new(width, self.chrome.accent),
+                StrokeKind::Inside,
+            );
+        }
     }
 
     /// A file or folder dragged from the files panel onto a pane: an edge opens it in a new
@@ -635,5 +732,23 @@ mod tests {
         assert_eq!(drop_for(r, pos2(95.0, 50.0)), Drop::Edge(Edge::Right));
         assert_eq!(drop_for(r, pos2(50.0, 90.0)), Drop::Edge(Edge::Bottom));
         assert_eq!(drop_for(r, pos2(50.0, 50.0)), Drop::Center);
+    }
+
+    #[test]
+    fn blink_phases() {
+        let ms = Duration::from_millis;
+        assert!(blink_on(ms(0)));
+        assert!(blink_on(ms(529)));
+        assert!(!blink_on(ms(530)));
+        assert!(!blink_on(ms(1059)));
+        assert!(blink_on(ms(1060)));
+    }
+
+    #[test]
+    fn toggle_countdown() {
+        let ms = Duration::from_millis;
+        assert_eq!(until_toggle(ms(0)), ms(530));
+        assert_eq!(until_toggle(ms(500)), ms(30));
+        assert_eq!(until_toggle(ms(530)), ms(530));
     }
 }

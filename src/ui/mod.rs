@@ -1,8 +1,9 @@
 //! egui chrome: the vertical tab sidebar, the files panel, the split pane area (terminals and
-//! file previews) and the tab switcher.
+//! file previews), the tab switcher and the keyboard shortcuts window.
 
 mod banner;
 mod files;
+mod help;
 mod panes;
 mod preview;
 mod sidebar;
@@ -11,6 +12,7 @@ mod switcher;
 use std::path::Path;
 
 pub use files::FileDrag;
+pub use help::Help;
 pub use switcher::Switcher;
 
 /// A path for display: `$HOME` shown as `~`.

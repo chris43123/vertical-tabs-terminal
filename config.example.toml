@@ -32,10 +32,42 @@ adopt_shell_palette = false
 # Terminal editors open in a new vtt tab.
 # editor = "nvim"
 
+# Scale of the whole UI: sidebar, files panel, previews and terminals.
+# Change it at runtime with Ctrl+Shift+= / Ctrl+Shift+- / Ctrl+Shift+0; the runtime
+# zoom is remembered across restarts until you change this value.
+ui_scale = 1.0
+
+# Minimum contrast ratio between terminal text and its background (WCAG: 4.5 is AA, 7 is AAA).
+# Text below it is lightened or darkened to reach it. 1.0 turns this off.
+min_contrast = 1.0
+
+# Turn off UI animations, smooth scrolling and cursor blinking.
+reduce_motion = false
+
+# Width in points of the accent border around the focused pane in a split (0 for none).
+focus_border_width = 1.0
+
+# What a terminal bell does: "badge" marks the tab in the sidebar, "flash" also flashes
+# the pane, "none" ignores it.
+bell = "badge"
+
 [font]
 # Font family; defaults to the system monospace font.
 # family = "JetBrains Mono"
+# Ctrl+= / Ctrl+- / Ctrl+0 zoom just the focused pane (terminal or preview).
 size = 14.0
+# Line height as a multiple of the font's own (e.g. 1.2 for more space between lines).
+line_height = 1.0
+# Extra space between characters, in points (may be negative).
+letter_spacing = 0.0
+
+[cursor]
+# Shape when the program doesn't choose one: "block", "beam" or "underline".
+style = "block"
+# Blink the cursor (programs may also ask for blinking; never with reduce_motion).
+blink = false
+# Thickness multiplier for beam, underline and the unfocused outline.
+thickness = 1.0
 
 [files]
 # Show the files panel (between the tabs and the terminals) at startup. Toggle: Ctrl+Shift+E.

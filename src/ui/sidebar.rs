@@ -145,6 +145,83 @@ impl App {
             });
     }
 
+    /// Zen mode: while the side area is hidden, touching the window's left edge shows the
+    /// sidebar at full width, floating over the panes (so terminals don't resize).
+    pub(crate) fn zen_sidebar(&mut self, ctx: &egui::Context, area: Rect) {
+        let pointer = ctx.input(|i| i.pointer.hover_pos());
+        let dragging = egui::DragAndDrop::has_any_payload(ctx);
+        let width = if self.zen_files {
+            self.config.files.width
+        } else {
+            self.config.sidebar_width
+        };
+        let overlay = Rect::from_min_size(area.min, vec2(width, area.height()));
+
+        if pointer.is_some_and(|p| p.x <= area.min.x + 4.0 && area.contains(p)) && !dragging {
+            if !self.zen_peek {
+                self.zen_peek = true;
+            }
+            self.zen_hovered_once = true;
+        } else if self.zen_peek {
+            let inside = pointer.is_some_and(|p| overlay.expand(8.0).contains(p));
+            self.zen_hovered_once |= inside;
+            let escape = !self.search_focused && ctx.input(|i| i.key_pressed(egui::Key::Escape));
+            // Opened by keyboard: stays until the pointer has entered and left again.
+            let keep = (inside
+                || !self.zen_hovered_once
+                || self.search_focused
+                || ctx.any_popup_open()
+                || self.renaming.is_some())
+                && !escape;
+            if !keep || dragging {
+                self.zen_peek = false;
+            }
+        }
+        if !self.zen_peek {
+            return;
+        }
+
+        let mut actions = Vec::new();
+        let c = self.chrome.clone();
+        let fill = if self.zen_files {
+            crate::theme::mix(c.sidebar, c.bg, 0.45)
+        } else {
+            ctx.global_style().visuals.panel_fill
+        };
+        egui::Area::new(Id::new(if self.zen_files {
+            "files_zen"
+        } else {
+            "sidebar_zen"
+        }))
+        .fixed_pos(area.min)
+        .order(Order::Foreground)
+        .show(ctx, |ui| {
+            egui::Frame::new()
+                .fill(fill)
+                .inner_margin(6)
+                .shadow(egui::Shadow {
+                    offset: [4, 0],
+                    blur: 16,
+                    spread: 0,
+                    color: Color32::from_black_alpha(120),
+                })
+                .show(ui, |ui| {
+                    ui.set_width(width - 12.0);
+                    ui.set_height(area.height() - 12.0);
+                    if self.zen_files {
+                        self.files_overlay_contents(ui);
+                    } else {
+                        self.sidebar_contents(ui, true, &mut actions);
+                    }
+                });
+        });
+        self.drag_ghost(ctx);
+        self.scroll_to_focused = false;
+        for action in actions {
+            self.apply(action);
+        }
+    }
+
     fn sidebar_contents(&mut self, ui: &mut Ui, expanded: bool, actions: &mut Vec<Action>) {
         ui.spacing_mut().item_spacing = vec2(4.0, 2.0);
 
@@ -187,7 +264,7 @@ impl App {
                         actions.push(Action::OpenSettings);
                     }
                     let files = ui
-                        .selectable_label(self.files_open, " 🗀 ")
+                        .selectable_label(self.files_open && !self.side_hidden, " 🗀 ")
                         .on_hover_text(&files_tip);
                     if files.clicked() {
                         actions.push(Action::ToggleFiles);
@@ -975,7 +1052,13 @@ impl App {
                     self.new_tab(0, None);
                 }
             }
-            Action::ToggleFiles => self.files_open = !self.files_open,
+            Action::ToggleFiles => {
+                if self.side_hidden {
+                    self.zen_toggle_files();
+                } else {
+                    self.files_open = !self.files_open;
+                }
+            }
             Action::OpenPath(path) => self.open_path_tab(path),
         }
     }

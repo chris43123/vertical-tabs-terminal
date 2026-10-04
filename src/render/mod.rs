@@ -4,4 +4,4 @@ pub mod font;
 pub mod grid;
 
 pub use font::Fonts;
-pub use grid::{Palette, cell_at, grid_size_for, paint_terminal};
+pub use grid::{Palette, TermOpts, cell_at, grid_size_for, paint_terminal};
