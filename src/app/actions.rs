@@ -41,13 +41,13 @@ impl App {
                 self.new_tab(0, Some(Edge::Bottom));
             }
             Action::ToggleSidebar => {
-                self.sidebar_collapsed = !self.sidebar_collapsed;
-                self.sidebar_peek = false;
-                self.side_hidden = false;
+                self.side.collapsed = !self.side.collapsed;
+                self.side.peek = false;
+                self.side.hidden = false;
             }
             Action::ToggleSideArea => {
-                self.side_hidden = !self.side_hidden;
-                self.sidebar_peek = false;
+                self.side.hidden = !self.side.hidden;
+                self.side.peek = false;
             }
             Action::ReopenClosedTab => self.reopen_closed_tab(),
             Action::DuplicateTab => {
@@ -92,19 +92,19 @@ impl App {
             Action::ShowHelp => self.help = Some(crate::ui::Help::default()),
             Action::OpenSettings => self.open_settings(),
             Action::ToggleFiles => {
-                if self.side_hidden {
+                if self.side.hidden {
                     self.zen_toggle_files();
                 } else {
-                    self.files_open = !self.files_open;
+                    self.side.files_open = !self.side.files_open;
                 }
             }
             Action::SearchFiles => {
-                if self.side_hidden {
+                if self.side.hidden {
                     self.zen_show(true);
                 } else {
-                    self.files_open = true;
+                    self.side.files_open = true;
                 }
-                self.focus_search = true;
+                self.files.focus_search = true;
             }
             Action::NewGroup => {
                 if let Some(f) = self.ws.focused() {

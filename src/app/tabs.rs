@@ -154,10 +154,7 @@ impl App {
             .unwrap_or_default();
         self.renaming = Some((RenameTarget::Tab(id), current));
         self.scroll_to_focused = true;
-        self.side_hidden = false;
-        if self.sidebar_collapsed {
-            self.sidebar_peek = true;
-        }
+        self.side.reveal_sidebar();
     }
 
     /// Put tab `id` into a new folder and start naming it.
@@ -165,10 +162,7 @@ impl App {
         let name = format!("Group {}", self.ws.groups.len() + 1);
         if let Some(g) = self.ws.new_group(id, name.clone()) {
             self.renaming = Some((RenameTarget::Group(g), name));
-            self.side_hidden = false;
-            if self.sidebar_collapsed {
-                self.sidebar_peek = true;
-            }
+            self.side.reveal_sidebar();
         }
     }
 

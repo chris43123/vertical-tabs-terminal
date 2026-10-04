@@ -3,26 +3,48 @@
 
 use std::path::{Path, PathBuf};
 
+use eframe::egui;
+
+use crate::files::FileTree;
+use crate::files::git;
+use crate::files::search::Search;
 use crate::workspace::TabId;
 
-use super::App;
+use super::{App, Tab};
 
-impl App {
-    /// The files tree is on screen: as the side panel, or as the zen overlay.
-    pub(super) fn files_visible(&self) -> bool {
-        if self.side_hidden {
-            self.zen_peek && self.zen_files
-        } else {
-            self.files_open
+/// The files panel's state: the tree, which folder it follows, git status and the search box.
+#[derive(Default)]
+pub struct FilesPanel {
+    pub tree: FileTree,
+    /// The cwd the tree last followed; the user may browse elsewhere until it changes.
+    followed: Option<PathBuf>,
+    /// Git state of the repository the tree shows.
+    pub git: git::Watcher,
+    pub search: Search,
+    /// The search box had keyboard focus last frame (so it keeps it).
+    pub search_focused: bool,
+    /// Give the search box keyboard focus next frame.
+    pub focus_search: bool,
+}
+
+impl FilesPanel {
+    /// Show `cwd` if the followed shell moved there (or nothing is shown yet). Otherwise
+    /// the tree stays wherever the user browsed to.
+    fn follow(&mut self, cwd: PathBuf) {
+        if self.followed.as_ref() != Some(&cwd) || self.tree.root().is_none() {
+            self.tree.set_root(cwd.clone());
+            self.followed = Some(cwd);
         }
     }
+}
 
+impl App {
     /// Zen mode: show the overlay with the files panel (`files`) or the tabs, right away and
     /// until the pointer has visited it and left again.
     pub(crate) fn zen_show(&mut self, files: bool) {
-        self.zen_files = files;
-        self.zen_peek = true;
-        self.zen_hovered_once = false;
+        self.side.zen_files = files;
+        self.side.zen_peek = true;
+        self.side.zen_hovered_once = false;
         if files {
             self.follow_cwd();
         }
@@ -30,7 +52,7 @@ impl App {
 
     /// Ctrl+\ in zen mode: switch the overlay between tabs and files.
     pub(crate) fn zen_toggle_files(&mut self) {
-        self.zen_show(!(self.zen_peek && self.zen_files));
+        self.zen_show(!(self.side.zen_peek && self.side.zen_files));
     }
 
     /// Point the files panel at the focused shell's cwd when it changes (after `cd`).
@@ -46,16 +68,40 @@ impl App {
         if let Some(cwd) = session.proc_info().cwd {
             tab.cwd = Some(cwd);
         }
-        let Some(cwd) = tab.cwd.clone() else { return };
-        if self.files_followed.as_ref() != Some(&cwd) || self.files.root().is_none() {
-            self.files.set_root(cwd.clone());
-            self.files_followed = Some(cwd);
+        if let Some(cwd) = tab.cwd.clone() {
+            self.files.follow(cwd);
         }
     }
 
     /// Browse the files panel somewhere else (until the shell's cwd changes again).
     pub fn browse_files(&mut self, dir: PathBuf) {
-        self.files.set_root(dir);
+        self.files.tree.set_root(dir);
+    }
+
+    /// Before drawing the panel: follow the focused shell if focus moved to another tab or its
+    /// last polled cwd changed, and point git status at the shown folder.
+    pub(crate) fn sync_files_root(&mut self, ctx: &egui::Context) {
+        let focused = self.ws.focused().and_then(|f| self.tabs.get(&f));
+        match focused
+            .filter(|t| t.session().is_some())
+            .and_then(|t| t.cwd.clone())
+        {
+            Some(cwd) => self.files.follow(cwd),
+            None if self.files.tree.root().is_none() => {
+                // Fresh tab without a polled cwd yet, or a preview: ask directly.
+                if let Some(dir) = focused
+                    .and_then(Tab::dir)
+                    .map(Path::to_path_buf)
+                    .or_else(dirs::home_dir)
+                {
+                    self.files.tree.set_root(dir);
+                }
+            }
+            None => {}
+        }
+        if let Some(root) = self.files.tree.root().map(Path::to_path_buf) {
+            self.files.git.set_dir(&root, ctx);
+        }
     }
 
     /// The terminal that file actions type into: the focused pane, or else another terminal

@@ -3,7 +3,7 @@
 use std::time::Instant;
 
 use alacritty_terminal::grid::Scroll;
-use eframe::egui::{self};
+use eframe::egui;
 
 use crate::terminal::session::Session;
 

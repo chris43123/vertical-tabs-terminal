@@ -9,14 +9,16 @@ mod events;
 mod files;
 mod input;
 mod previews;
+mod side;
 mod tab;
 mod tabs;
 
+pub use files::FilesPanel;
+pub use previews::Previews;
+pub use side::SidePanels;
 pub use tab::{Content, RenameTarget, Tab, TabDrag};
 
 use std::collections::HashMap;
-use std::path::PathBuf;
-use std::sync::Arc;
 use std::sync::mpsc::{Receiver, Sender, channel};
 use std::time::{Duration, Instant};
 
@@ -26,8 +28,6 @@ use eframe::egui;
 use crate::config::Config;
 use crate::config::keybinds::Keybinds;
 use crate::config::watch::Watcher;
-use crate::files::FileTree;
-use crate::preview::highlight::Highlighter;
 use crate::render::{Fonts, Palette};
 use crate::terminal::profiles::{self, Profile};
 use crate::theme::{self, Patch, Theme, UiColors};
@@ -61,18 +61,8 @@ pub struct App {
     rx: Receiver<(TabId, TermEvent)>,
     ctx: egui::Context,
 
-    pub sidebar_collapsed: bool,
-    /// Collapsed sidebar temporarily shown expanded because the pointer hovers it.
-    pub sidebar_peek: bool,
-    /// Sidebar and files panel both hidden (Ctrl+B).
-    pub side_hidden: bool,
-    /// Zen mode: the sidebar is revealed by touching the left window edge.
-    pub zen_peek: bool,
-    /// What the zen overlay shows: the files panel (true) or the tabs.
-    pub zen_files: bool,
-    /// The pointer has entered the zen overlay since it opened (a keyboard-opened overlay
-    /// stays up until then).
-    pub zen_hovered_once: bool,
+    /// Which of the sidebar and files panel are shown.
+    pub side: SidePanels,
     /// Tab or folder currently being renamed, with the edit buffer.
     pub renaming: Option<(RenameTarget, String)>,
     /// Pane rects of the active view from the last frame (for directional pane focus).
@@ -104,34 +94,13 @@ pub struct App {
     pub problems: Vec<String>,
     pub problems_dismissed: bool,
 
-    /// The files panel between the sidebar and the panes.
-    pub files_open: bool,
-    pub files: FileTree,
-    /// The cwd the tree last followed; the user may browse elsewhere until it changes.
-    pub(crate) files_followed: Option<PathBuf>,
-    /// Soft-wrap long lines in text and code previews.
-    pub preview_wrap: bool,
-    /// Git state of the repository the files panel shows.
-    pub git: crate::files::git::Watcher,
-    /// The files panel's search box.
-    pub file_search: crate::files::search::Search,
-    /// The search box had keyboard focus last frame (so it keeps it).
-    pub search_focused: bool,
-    /// Give the search box keyboard focus next frame.
-    pub focus_search: bool,
+    pub files: FilesPanel,
     /// The focused shell was at its prompt at the last check (a command finishing is when
     /// git state is most likely to have changed).
     shell_was_idle: bool,
     last_cwd_check: Instant,
-    /// Loaded on first use: syntax definitions are a few MB.
-    highlighter: Option<Arc<Highlighter>>,
-    /// Code colors generated from the palette, and a counter bumped when they change.
-    pub syntax_theme: Arc<syntect::highlighting::Theme>,
-    pub syntax_theme_xml: String,
-    pub theme_generation: u64,
-    pub md_cache: Option<egui_commonmark::CommonMarkCache>,
-    /// Theme generation the markdown cache's code theme was registered for.
-    pub md_theme_generation: u64,
+    /// Highlighting and rendering state shared by preview panes.
+    pub previews: Previews,
 }
 
 impl App {
@@ -158,15 +127,13 @@ impl App {
         let (tx, rx) = channel();
         let keybinds = Keybinds::new(&config.keybindings);
         egui_extras::install_image_loaders(&ctx);
-        let syntax_theme_xml = crate::preview::highlight::tm_theme(&palette);
-        let mut files = FileTree::default();
-        files.show_hidden = config.files.show_hidden;
-        let files_open = config.files.open;
-        let preview_wrap = config.files.wrap;
+        let previews = Previews::new(&palette, config.files.wrap);
+        let side = SidePanels::new(config.sidebar_collapsed, config.files.open);
+        let mut files = FilesPanel::default();
+        files.tree.show_hidden = config.files.show_hidden;
 
         let mut app = Self {
             profiles: profiles::load(&config),
-            sidebar_collapsed: config.sidebar_collapsed,
             config,
             tabs: HashMap::new(),
             ws: Workspace::default(),
@@ -183,11 +150,7 @@ impl App {
             tx,
             rx,
             ctx,
-            sidebar_peek: false,
-            side_hidden: false,
-            zen_peek: false,
-            zen_files: false,
-            zen_hovered_once: false,
+            side,
             renaming: None,
             pane_rects: Vec::new(),
             scroll_accum: 0.0,
@@ -206,24 +169,10 @@ impl App {
             window_title: String::new(),
             problems: Vec::new(),
             problems_dismissed: false,
-            files_open,
-            preview_wrap,
-            git: Default::default(),
-            file_search: Default::default(),
-            search_focused: false,
-            focus_search: false,
             shell_was_idle: true,
             files,
-            files_followed: None,
             last_cwd_check: Instant::now(),
-            highlighter: None,
-            syntax_theme: Arc::new(
-                crate::preview::highlight::load_theme(&syntax_theme_xml).unwrap_or_default(),
-            ),
-            syntax_theme_xml,
-            theme_generation: 1,
-            md_cache: None,
-            md_theme_generation: 0,
+            previews,
         };
         app.new_tab(0, None);
         app
@@ -317,7 +266,7 @@ impl eframe::App for App {
         if self.renaming.is_none()
             && self.switcher.is_none()
             && self.help.is_none()
-            && !self.search_focused
+            && !self.files.search_focused
         {
             ctx.memory_mut(|m| {
                 if let Some(id) = m.focused() {
@@ -345,13 +294,13 @@ impl eframe::App for App {
             return;
         }
 
-        if self.side_hidden {
+        if self.side.hidden {
             let area = ui.available_rect_before_wrap();
             self.zen_sidebar(&ctx, area);
         } else {
-            self.zen_peek = false;
+            self.side.zen_peek = false;
             self.sidebar(ui);
-            if self.files_open {
+            if self.side.files_open {
                 self.files_panel(ui);
             }
         }

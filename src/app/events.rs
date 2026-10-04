@@ -102,7 +102,7 @@ impl App {
         }
         // A `cd` is followed by a new prompt, so the focused shell printing is the moment to
         // check whether its cwd moved. Throttled, since output can arrive every frame.
-        if self.files_visible()
+        if self.side.files_visible()
             && focused.is_some_and(|f| woke.contains(&f))
             && self.last_cwd_check.elapsed() >= Duration::from_millis(150)
         {
@@ -115,7 +115,7 @@ impl App {
             {
                 let idle = session.shell_idle();
                 if idle && !self.shell_was_idle {
-                    self.git.tick(&self.ctx, true);
+                    self.files.git.tick(&self.ctx, true);
                 }
                 self.shell_was_idle = idle;
             }
@@ -128,12 +128,8 @@ impl App {
     /// About once a second while they're on screen: refresh auto titles, re-list changed
     /// folders in the files panel, and reload previews whose file changed.
     pub(super) fn poll(&mut self) {
-        let sidebar_visible = if self.side_hidden {
-            self.zen_peek && !self.zen_files
-        } else {
-            !self.sidebar_collapsed || self.sidebar_peek
-        };
-        let files_visible = self.files_visible();
+        let sidebar_visible = self.side.sidebar_visible();
+        let files_visible = self.side.files_visible();
         let visible = self.ws.visible();
         let previews_visible = visible
             .iter()
@@ -158,11 +154,11 @@ impl App {
             }
             if files_visible {
                 self.follow_cwd();
-                self.files.refresh();
-                self.git.tick(&self.ctx, false);
+                self.files.tree.refresh();
+                self.files.git.tick(&self.ctx, false);
             }
             if previews_visible {
-                let hl = self.highlighter();
+                let hl = self.previews.highlighter();
                 for id in &visible {
                     if let Some(p) = self.tabs.get_mut(id).and_then(Tab::preview_mut)
                         && p.reload_if_changed(&hl)

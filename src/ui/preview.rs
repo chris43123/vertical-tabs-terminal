@@ -41,8 +41,11 @@ impl App {
         child.set_clip_rect(rect.intersect(ui.clip_rect()));
         let ui = &mut child;
 
-        let hl = self.highlighter();
-        let (syntax_theme, generation) = (self.syntax_theme.clone(), self.theme_generation);
+        let hl = self.previews.highlighter();
+        let (syntax_theme, generation) = (
+            self.previews.syntax_theme.clone(),
+            self.previews.theme_generation,
+        );
         // Pane zoom; markdown looks as before at zoom 0 whatever the base size.
         let font_size = self.pane_font_size(id);
         let scale = font_size / self.font_size;
@@ -52,7 +55,7 @@ impl App {
         };
         let highlighted = preview.highlighted(&hl, &syntax_theme, generation, &ctx);
 
-        let wrap = self.preview_wrap;
+        let wrap = self.previews.wrap;
         toolbar(ui, preview, wrap, &c, &mut actions);
 
         let body = ui.available_rect_before_wrap();
@@ -117,7 +120,7 @@ impl App {
                     let path = preview.path.to_string_lossy().into_owned();
                     self.set_clipboard(path);
                 }
-                Action::ToggleWrap => self.preview_wrap = !self.preview_wrap,
+                Action::ToggleWrap => self.previews.wrap = !self.previews.wrap,
             }
         }
     }
@@ -130,14 +133,7 @@ impl App {
         base: Option<&Path>,
         s: f32,
     ) {
-        let cache = self.md_cache.get_or_insert_with(Default::default);
-        if self.md_theme_generation != self.theme_generation {
-            let _ = cache.add_syntax_theme_from_bytes(
-                highlight::THEME_NAME,
-                self.syntax_theme_xml.as_bytes(),
-            );
-            self.md_theme_generation = self.theme_generation;
-        }
+        let cache = self.previews.markdown_cache();
         // Relative images (`![](docs/shot.png)`) load from the file's folder.
         let base_uri =
             base.map(|b| format!("{}{}", crate::ui::file_uri(b), std::path::MAIN_SEPARATOR));

@@ -64,7 +64,7 @@ enum Row {
 
 impl App {
     pub(crate) fn sidebar(&mut self, ui: &mut Ui) {
-        let collapsed = self.sidebar_collapsed;
+        let collapsed = self.side.collapsed;
         let width = if collapsed {
             COLLAPSED_WIDTH
         } else {
@@ -85,7 +85,7 @@ impl App {
         if collapsed {
             self.sidebar_peek_overlay(ui.ctx(), strip, &mut actions);
         } else {
-            self.sidebar_peek = false;
+            self.side.peek = false;
         }
 
         self.drag_ghost(ui.ctx());
@@ -110,16 +110,16 @@ impl App {
             Rect::from_min_size(strip.min, vec2(self.config.sidebar_width, strip.height()));
 
         if pointer.is_some_and(|p| strip.contains(p)) && !dragging {
-            self.sidebar_peek = true;
-        } else if self.sidebar_peek {
+            self.side.peek = true;
+        } else if self.side.peek {
             let keep = pointer.is_some_and(|p| overlay.expand(8.0).contains(p))
                 || ctx.any_popup_open()
                 || self.renaming.is_some();
             if !keep || dragging {
-                self.sidebar_peek = false;
+                self.side.peek = false;
             }
         }
-        if !self.sidebar_peek {
+        if !self.side.peek {
             return;
         }
 
@@ -150,7 +150,7 @@ impl App {
     pub(crate) fn zen_sidebar(&mut self, ctx: &egui::Context, area: Rect) {
         let pointer = ctx.input(|i| i.pointer.hover_pos());
         let dragging = egui::DragAndDrop::has_any_payload(ctx);
-        let width = if self.zen_files {
+        let width = if self.side.zen_files {
             self.config.files.width
         } else {
             self.config.sidebar_width
@@ -158,37 +158,38 @@ impl App {
         let overlay = Rect::from_min_size(area.min, vec2(width, area.height()));
 
         if pointer.is_some_and(|p| p.x <= area.min.x + 4.0 && area.contains(p)) && !dragging {
-            if !self.zen_peek {
-                self.zen_peek = true;
+            if !self.side.zen_peek {
+                self.side.zen_peek = true;
             }
-            self.zen_hovered_once = true;
-        } else if self.zen_peek {
+            self.side.zen_hovered_once = true;
+        } else if self.side.zen_peek {
             let inside = pointer.is_some_and(|p| overlay.expand(8.0).contains(p));
-            self.zen_hovered_once |= inside;
-            let escape = !self.search_focused && ctx.input(|i| i.key_pressed(egui::Key::Escape));
+            self.side.zen_hovered_once |= inside;
+            let escape =
+                !self.files.search_focused && ctx.input(|i| i.key_pressed(egui::Key::Escape));
             // Opened by keyboard: stays until the pointer has entered and left again.
             let keep = (inside
-                || !self.zen_hovered_once
-                || self.search_focused
+                || !self.side.zen_hovered_once
+                || self.files.search_focused
                 || ctx.any_popup_open()
                 || self.renaming.is_some())
                 && !escape;
             if !keep || dragging {
-                self.zen_peek = false;
+                self.side.zen_peek = false;
             }
         }
-        if !self.zen_peek {
+        if !self.side.zen_peek {
             return;
         }
 
         let mut actions = Vec::new();
         let c = self.chrome.clone();
-        let fill = if self.zen_files {
+        let fill = if self.side.zen_files {
             crate::theme::mix(c.sidebar, c.bg, 0.45)
         } else {
             ctx.global_style().visuals.panel_fill
         };
-        egui::Area::new(Id::new(if self.zen_files {
+        egui::Area::new(Id::new(if self.side.zen_files {
             "files_zen"
         } else {
             "sidebar_zen"
@@ -208,7 +209,7 @@ impl App {
                 .show(ui, |ui| {
                     ui.set_width(width - 12.0);
                     ui.set_height(area.height() - 12.0);
-                    if self.zen_files {
+                    if self.side.zen_files {
                         self.files_overlay_contents(ui);
                     } else {
                         self.sidebar_contents(ui, true, &mut actions);
@@ -252,7 +253,7 @@ impl App {
             ui.horizontal(|ui| {
                 header(ui, actions);
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    let (label, tip) = if self.sidebar_collapsed {
+                    let (label, tip) = if self.side.collapsed {
                         (" » ", format!("Pin sidebar open{sidebar_hint}"))
                     } else {
                         (" « ", format!("Collapse sidebar{sidebar_hint}"))
@@ -264,7 +265,7 @@ impl App {
                         actions.push(Action::OpenSettings);
                     }
                     let files = ui
-                        .selectable_label(self.files_open && !self.side_hidden, " 🗀 ")
+                        .selectable_label(self.side.files_open && !self.side.hidden, " 🗀 ")
                         .on_hover_text(&files_tip);
                     if files.clicked() {
                         actions.push(Action::ToggleFiles);
@@ -1027,8 +1028,8 @@ impl App {
                 self.new_tab(profile, None);
             }
             Action::ToggleCollapse => {
-                self.sidebar_collapsed = !self.sidebar_collapsed;
-                self.sidebar_peek = false;
+                self.side.collapsed = !self.side.collapsed;
+                self.side.peek = false;
             }
             Action::MoveTo(id, idx, group) => self.ws.move_to(id, idx, group),
             Action::NewGroup(id) => self.new_group(id),
@@ -1053,10 +1054,10 @@ impl App {
                 }
             }
             Action::ToggleFiles => {
-                if self.side_hidden {
+                if self.side.hidden {
                     self.zen_toggle_files();
                 } else {
-                    self.files_open = !self.files_open;
+                    self.side.files_open = !self.side.files_open;
                 }
             }
             Action::OpenPath(path) => self.open_path_tab(path),

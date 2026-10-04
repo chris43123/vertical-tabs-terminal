@@ -5,13 +5,76 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
+use egui_commonmark::CommonMarkCache;
+
 use crate::preview::Preview;
-use crate::preview::highlight::Highlighter;
+use crate::preview::highlight::{self, Highlighter};
+use crate::render::Palette;
 use crate::terminal::profiles::Profile;
 use crate::workspace::{Drop, Edge, TabId};
 
 use super::App;
 use super::tab::{Content, Tab};
+
+/// State shared by all preview panes: the highlighter, code colors generated from the
+/// palette, the markdown viewer's cache, and soft wrap.
+pub struct Previews {
+    /// Loaded on first use: syntax definitions are a few MB.
+    highlighter: Option<Arc<Highlighter>>,
+    /// Code colors generated from the palette, and a counter bumped when they change.
+    pub syntax_theme: Arc<syntect::highlighting::Theme>,
+    syntax_theme_xml: String,
+    pub theme_generation: u64,
+    md_cache: Option<CommonMarkCache>,
+    /// Theme generation the markdown cache's code theme was registered for.
+    md_theme_generation: u64,
+    /// Soft-wrap long lines in text and code previews.
+    pub wrap: bool,
+}
+
+impl Previews {
+    pub fn new(palette: &Palette, wrap: bool) -> Self {
+        let mut previews = Self {
+            highlighter: None,
+            syntax_theme: Arc::default(),
+            syntax_theme_xml: String::new(),
+            theme_generation: 0,
+            md_cache: None,
+            md_theme_generation: 0,
+            wrap,
+        };
+        previews.set_palette(palette);
+        previews
+    }
+
+    pub fn highlighter(&mut self) -> Arc<Highlighter> {
+        self.highlighter
+            .get_or_insert_with(|| Arc::new(Highlighter::new()))
+            .clone()
+    }
+
+    /// Regenerate code colors after the terminal palette changed.
+    pub fn set_palette(&mut self, palette: &Palette) {
+        self.syntax_theme_xml = highlight::tm_theme(palette);
+        if let Some(t) = highlight::load_theme(&self.syntax_theme_xml) {
+            self.syntax_theme = Arc::new(t);
+        }
+        self.theme_generation += 1;
+    }
+
+    /// The markdown viewer's cache, with the current code colors registered.
+    pub fn markdown_cache(&mut self) -> &mut CommonMarkCache {
+        let cache = self.md_cache.get_or_insert_with(Default::default);
+        if self.md_theme_generation != self.theme_generation {
+            let _ = cache.add_syntax_theme_from_bytes(
+                highlight::THEME_NAME,
+                self.syntax_theme_xml.as_bytes(),
+            );
+            self.md_theme_generation = self.theme_generation;
+        }
+        cache
+    }
+}
 
 impl App {
     /// Show `path` in a preview pane next to the focused terminal. A preview already in the
@@ -50,7 +113,7 @@ impl App {
 
     /// Show `path` in preview tab `id` instead of the file it shows now.
     fn replace_preview(&mut self, id: TabId, path: PathBuf) {
-        let preview = Preview::open(path, &self.highlighter());
+        let preview = Preview::open(path, &self.previews.highlighter());
         if let Some(tab) = self.tabs.get_mut(&id)
             && tab.preview().is_some()
         {
@@ -113,7 +176,7 @@ impl App {
         path: PathBuf,
         split: Option<(TabId, Edge)>,
     ) -> Option<TabId> {
-        let preview = Preview::open(path, &self.highlighter());
+        let preview = Preview::open(path, &self.previews.highlighter());
         let id = self.next_id;
         self.next_id += 1;
         let after = split.map(|(t, _)| t).or(self.ws.focused());
@@ -126,12 +189,6 @@ impl App {
         }
         self.scroll_to_focused = true;
         Some(id)
-    }
-
-    pub fn highlighter(&mut self) -> Arc<Highlighter> {
-        self.highlighter
-            .get_or_insert_with(|| Arc::new(Highlighter::new()))
-            .clone()
     }
 }
 

@@ -11,7 +11,7 @@ use std::path::{Path, PathBuf};
 use eframe::egui::text::{LayoutJob, TextWrapping};
 use eframe::egui::{self, Align2, Color32, CornerRadius, FontId, RichText, Sense, Ui, pos2, vec2};
 
-use crate::app::{App, Content};
+use crate::app::App;
 use crate::config::keybinds::Action as Shortcut;
 use crate::files::Row;
 use crate::files::git::{Change, Status};
@@ -39,18 +39,10 @@ enum Action {
 }
 
 impl App {
-    /// Point the tree (and git status) at the followed folder before drawing it.
-    fn files_prepare(&mut self, ctx: &egui::Context) {
-        self.sync_files_root();
-        if let Some(root) = self.files.root().map(Path::to_path_buf) {
-            self.git.set_dir(&root, ctx);
-        }
-    }
-
     /// The files panel's contents inside the zen overlay (its frame is drawn by the caller).
     pub(crate) fn files_overlay_contents(&mut self, ui: &mut Ui) {
         let ctx = ui.ctx().clone();
-        self.files_prepare(&ctx);
+        self.sync_files_root(&ctx);
         let mut actions = Vec::new();
         self.files_contents(ui, &mut actions);
         for action in actions {
@@ -60,7 +52,7 @@ impl App {
 
     pub(crate) fn files_panel(&mut self, ui: &mut Ui) {
         let ctx = ui.ctx().clone();
-        self.files_prepare(&ctx);
+        self.sync_files_root(&ctx);
         let c = self.chrome.clone();
         let fill = mix(c.sidebar, c.bg, 0.45);
         let mut actions = Vec::new();
@@ -75,37 +67,10 @@ impl App {
         }
     }
 
-    /// Follow the focused shell when focus moves to another tab or its cwd changed.
-    fn sync_files_root(&mut self) {
-        let focused = self.ws.focused().and_then(|f| self.tabs.get(&f));
-        let cwd = focused
-            .filter(|t| matches!(t.content, Content::Term(_)))
-            .and_then(|t| t.cwd.clone());
-        match cwd {
-            Some(cwd) if self.files_followed.as_ref() != Some(&cwd) => {
-                self.files.set_root(cwd.clone());
-                self.files_followed = Some(cwd);
-            }
-            None if self.files.root().is_none() => {
-                // Fresh tab without a polled cwd yet, or a preview: ask directly.
-                let dir = self
-                    .ws
-                    .focused()
-                    .and_then(|f| self.tabs.get(&f))
-                    .and_then(|t| t.dir().map(Path::to_path_buf))
-                    .or_else(dirs::home_dir);
-                if let Some(dir) = dir {
-                    self.files.set_root(dir);
-                }
-            }
-            _ => {}
-        }
-    }
-
     fn files_contents(&mut self, ui: &mut Ui, actions: &mut Vec<Action>) {
         ui.spacing_mut().item_spacing = vec2(4.0, 2.0);
         let c = self.chrome.clone();
-        let Some(root) = self.files.root().map(Path::to_path_buf) else {
+        let Some(root) = self.files.tree.root().map(Path::to_path_buf) else {
             ui.weak("No folder");
             return;
         };
@@ -134,7 +99,7 @@ impl App {
                     actions.push(Action::CollapseAll);
                 }
                 let hidden = ui
-                    .selectable_label(self.files.show_hidden, ".*")
+                    .selectable_label(self.files.tree.show_hidden, ".*")
                     .on_hover_text("Show hidden files");
                 if hidden.clicked() {
                     actions.push(Action::ToggleHidden);
@@ -156,7 +121,7 @@ impl App {
         );
         job.wrap = TextWrapping::truncate_at_width(ui.available_width());
         ui.label(job).on_hover_text(root.to_string_lossy());
-        let git = self.git.status();
+        let git = self.files.git.status();
         if let Some(status) = &git {
             self.git_line(ui, status);
         }
@@ -166,11 +131,11 @@ impl App {
         ui.separator();
 
         let selected = self.visible_preview_path();
-        if !self.file_search.query.trim().is_empty() {
+        if !self.files.search.query.trim().is_empty() {
             self.search_results(ui, &root, git.as_deref(), selected.as_deref(), actions);
             return;
         }
-        let rows = self.files.rows();
+        let rows = self.files.tree.rows();
         egui::ScrollArea::vertical()
             .auto_shrink([false, false])
             .id_salt("files_tree")
@@ -219,7 +184,7 @@ impl App {
     /// The search box. Up/Down pick a result, Enter previews it, Esc clears the search.
     fn search_box(&mut self, ui: &mut Ui, root: &Path, actions: &mut Vec<Action>) {
         let (mut down, mut up, mut enter, mut escape) = (false, false, false, false);
-        if self.search_focused {
+        if self.files.search_focused {
             ui.input_mut(|i| {
                 down = i.consume_key(egui::Modifiers::NONE, egui::Key::ArrowDown);
                 up = i.consume_key(egui::Modifiers::NONE, egui::Key::ArrowUp);
@@ -229,33 +194,33 @@ impl App {
         }
         let hint = format!("Search files{}", self.keybinds.hint(Shortcut::SearchFiles));
         let edit = ui.add(
-            egui::TextEdit::singleline(&mut self.file_search.query)
+            egui::TextEdit::singleline(&mut self.files.search.query)
                 .hint_text(hint)
                 .desired_width(ui.available_width()),
         );
-        if std::mem::take(&mut self.focus_search) {
+        if std::mem::take(&mut self.files.focus_search) {
             edit.request_focus();
         }
         if edit.changed() {
-            self.file_search.selected = 0;
+            self.files.search.selected = 0;
         }
         if escape {
-            self.file_search.query.clear();
+            self.files.search.query.clear();
             edit.surrender_focus();
         }
-        self.search_focused = edit.has_focus() && !escape;
-        if self.file_search.query.trim().is_empty() {
+        self.files.search_focused = edit.has_focus() && !escape;
+        if self.files.search.query.trim().is_empty() {
             return;
         }
         let ctx = ui.ctx().clone();
-        self.file_search.ensure_index(root, &ctx);
-        let Some(index) = self.file_search.index(root) else {
+        self.files.search.ensure_index(root, &ctx);
+        let Some(index) = self.files.search.index(root) else {
             return;
         };
-        let results = self.file_search.results(&index);
+        let results = self.files.search.results(&index);
         let n = results.len();
         if n > 0 {
-            let sel = &mut self.file_search.selected;
+            let sel = &mut self.files.search.selected;
             if down {
                 *sel = (*sel + 1) % n;
             }
@@ -280,13 +245,13 @@ impl App {
         let c = self.chrome.clone();
         let fill = fill_of(ui);
         let dim = mix(c.fg, fill, 0.5);
-        let Some(index) = self.file_search.index(root) else {
+        let Some(index) = self.files.search.index(root) else {
             ui.label(RichText::new("Indexing…").color(dim));
             return;
         };
-        let results = self.file_search.results(&index);
+        let results = self.files.search.results(&index);
         if results.is_empty() {
-            let text = if self.file_search.building() {
+            let text = if self.files.search.building() {
                 "Indexing…"
             } else {
                 "No matching files"
@@ -294,8 +259,8 @@ impl App {
             ui.label(RichText::new(text).color(dim));
             return;
         }
-        let picked = self.file_search.selected;
-        let scroll_to = self.search_focused;
+        let picked = self.files.search.selected;
+        let scroll_to = self.files.search_focused;
         egui::ScrollArea::vertical()
             .auto_shrink([false, false])
             .id_salt("files_search")
@@ -347,7 +312,7 @@ impl App {
                         resp.scroll_to_me(None);
                     }
                     if resp.clicked() {
-                        self.file_search.selected = i;
+                        self.files.search.selected = i;
                         actions.push(Action::Preview(path.clone()));
                     }
                     if resp.drag_started() {
@@ -512,7 +477,7 @@ impl App {
 
     fn apply_file_action(&mut self, action: Action) {
         match action {
-            Action::Toggle(p) => self.files.toggle(&p),
+            Action::Toggle(p) => self.files.tree.toggle(&p),
             Action::Preview(p) => self.open_preview(p),
             Action::Browse(p) => self.browse_files(p),
             Action::Cd(p) => self.cd_focused(&p),
@@ -524,10 +489,10 @@ impl App {
                     crate::diag::warn(err);
                 }
             }
-            Action::ToggleHidden => self.files.show_hidden = !self.files.show_hidden,
-            Action::CollapseAll => self.files.collapse_all(),
-            Action::Close if self.side_hidden => self.zen_files = false,
-            Action::Close => self.files_open = false,
+            Action::ToggleHidden => self.files.tree.show_hidden = !self.files.tree.show_hidden,
+            Action::CollapseAll => self.files.tree.collapse_all(),
+            Action::Close if self.side.hidden => self.side.zen_files = false,
+            Action::Close => self.side.files_open = false,
         }
     }
 }

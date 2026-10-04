@@ -2,7 +2,6 @@
 
 use std::collections::HashMap;
 use std::path::PathBuf;
-use std::sync::Arc;
 
 use eframe::egui::{self, Color32};
 
@@ -44,11 +43,7 @@ impl App {
     fn set_theme(&mut self, theme: &Theme) {
         self.palette = Palette::from_theme(theme);
         self.chrome = UiColors::from_theme(theme);
-        self.syntax_theme_xml = crate::preview::highlight::tm_theme(&self.palette);
-        if let Some(t) = crate::preview::highlight::load_theme(&self.syntax_theme_xml) {
-            self.syntax_theme = Arc::new(t);
-        }
-        self.theme_generation += 1;
+        self.previews.set_palette(&self.palette);
         apply_style(&self.ctx, &self.chrome);
         self.ctx.request_repaint();
     }
@@ -120,16 +115,16 @@ impl App {
             self.font_size = new.font.size;
         }
         if new.sidebar_collapsed != old.sidebar_collapsed {
-            self.sidebar_collapsed = new.sidebar_collapsed;
+            self.side.collapsed = new.sidebar_collapsed;
         }
         if new.files.open != old.files.open {
-            self.files_open = new.files.open;
+            self.side.files_open = new.files.open;
         }
         if new.files.wrap != old.files.wrap {
-            self.preview_wrap = new.files.wrap;
+            self.previews.wrap = new.files.wrap;
         }
         if new.files.show_hidden != old.files.show_hidden {
-            self.files.show_hidden = new.files.show_hidden;
+            self.files.tree.show_hidden = new.files.show_hidden;
         }
 
         let resolved = theme::resolve(&self.config);
