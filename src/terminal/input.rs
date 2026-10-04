@@ -82,7 +82,7 @@ pub fn encode_key(key: Key, mods: Modifiers, mode: TermMode) -> Option<Vec<u8>> 
     Some(bytes)
 }
 
-/// Ctrl+<key> control codes.
+/// `Ctrl+<key>` control codes.
 fn ctrl_code(key: Key) -> Option<Vec<u8>> {
     let name = key.name();
     let b = match key {

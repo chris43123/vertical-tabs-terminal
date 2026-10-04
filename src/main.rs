@@ -1,3 +1,20 @@
+//! vtt: a GPU-accelerated terminal with a vertical tab sidebar.
+//!
+//! Layout, roughly from the bottom up:
+//!
+//! - [`config`]: the config file, keybindings, settings editing and the file watcher.
+//! - [`theme`]: resolving the color theme and deriving the UI's colors from it.
+//! - [`terminal`]: a shell in a PTY driven by alacritty_terminal, input encoding, and
+//!   inspecting the foreground process.
+//! - [`workspace`]: pure tab/split/folder bookkeeping, with no rendering or sessions.
+//! - [`files`] and [`preview`]: the files panel's tree, git status and search, and file
+//!   previews with syntax highlighting.
+//! - [`render`]: glyph atlas and per-pane meshes for terminal grids.
+//! - [`app`]: the application state and its behavior; it owns everything above.
+//! - [`ui`]: the egui chrome, drawn from `App` each frame.
+//!
+//! [`diag`], [`fuzzy`] and [`platform`] are small helpers shared across these.
+
 #![cfg_attr(all(windows, not(debug_assertions)), windows_subsystem = "windows")]
 
 mod app;

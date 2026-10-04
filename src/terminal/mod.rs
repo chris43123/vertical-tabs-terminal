@@ -25,11 +25,11 @@ pub fn shell_quote(path: &Path) -> String {
     }
 }
 
-#[cfg(test)]
+// Quoting differs on Windows (double quotes only).
+#[cfg(all(test, unix))]
 mod tests {
     use super::*;
 
-    #[cfg(unix)]
     #[test]
     fn quotes_for_shells() {
         assert_eq!(shell_quote(Path::new("/tmp/a-b.txt")), "/tmp/a-b.txt");

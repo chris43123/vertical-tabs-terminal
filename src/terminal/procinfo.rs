@@ -117,7 +117,7 @@ fn process_cwd(_pid: u32) -> Option<PathBuf> {
     None
 }
 
-/// Format a title: "<process> · <cwd>", with `$HOME` shown as `~` and at most the last two
+/// Format a title: `"<process> · <cwd>"`, with `$HOME` shown as `~` and at most the last two
 /// path components. Missing parts are skipped.
 pub fn format_title(info: &ProcInfo) -> Option<String> {
     format_with_home(info, dirs::home_dir().as_deref())
