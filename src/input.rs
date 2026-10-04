@@ -67,6 +67,9 @@ pub fn encode_key(key: Key, mods: Modifiers, mode: TermMode) -> Option<Vec<u8>> 
         Key::F10 => tilde_key(21),
         Key::F11 => tilde_key(23),
         Key::F12 => tilde_key(24),
+        // Shift+Enter has no legacy encoding; ESC CR (what Alt+Enter sends) is the de-facto
+        // "newline without submitting" for Claude Code, fish, readline and friends.
+        Key::Enter if mods.shift => vec![0x1b, b'\r'],
         Key::Enter => esc_prefix(vec![b'\r']),
         Key::Tab if mods.shift => b"\x1b[Z".to_vec(),
         Key::Tab => esc_prefix(vec![b'\t']),
@@ -183,6 +186,12 @@ mod tests {
             ctrl,
             ..Default::default()
         }
+    }
+
+    #[test]
+    fn shift_enter_sends_esc_cr() {
+        let e = encode_key(Key::Enter, m(true, false, false), TermMode::empty());
+        assert_eq!(e, Some(vec![0x1b, b'\r']));
     }
 
     #[test]
