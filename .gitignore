@@ -1,1 +1,7 @@
 /target
+
+# makepkg output
+/packaging/arch/src/
+/packaging/arch/pkg/
+/packaging/arch/vtt/
+/packaging/arch/*.pkg.tar.*

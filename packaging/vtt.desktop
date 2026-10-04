@@ -1,0 +1,12 @@
+[Desktop Entry]
+Type=Application
+Name=vtt
+GenericName=Terminal
+Comment=Terminal with vertical tabs, a files panel and file previews
+Exec=vtt
+Icon=utilities-terminal
+Terminal=false
+Categories=System;TerminalEmulator;
+Keywords=shell;prompt;command;commandline;terminal;tabs;
+StartupNotify=true
+StartupWMClass=vtt

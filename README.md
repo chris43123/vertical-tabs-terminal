@@ -101,6 +101,25 @@ Folders group tabs in the sidebar, like folders in Zen Browser.
 - New tabs opened from a tab in a folder join that folder. A split view always moves as a unit.
 - Right-click a folder's header to rename it, change its color, open a new tab in it, ungroup it, or close all its tabs.
 
+## Installing
+
+**Arch / CachyOS / Manjaro:** build and install a package from this checkout:
+
+```sh
+cd packaging/arch
+makepkg -si
+```
+
+It packages the latest *committed* state and installs `vtt` to `/usr/bin` with a desktop entry, so it shows up in your app launcher. To update, pull (or commit) and run `makepkg -si` again. Remove it with `sudo pacman -R vtt-git`.
+
+**Anywhere with Rust:**
+
+```sh
+cargo install --path .
+```
+
+This installs `vtt` to `~/.cargo/bin`. For your app launcher, copy the desktop entry too: `cp packaging/vtt.desktop ~/.local/share/applications/` (it runs `vtt`, so `~/.cargo/bin` must be on the launcher's `PATH`).
+
 ## Building
 
 Requires a stable Rust toolchain.

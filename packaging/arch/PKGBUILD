@@ -1,0 +1,61 @@
+# Builds vtt from the commits in this checkout (uncommitted changes are not included).
+# Usage, from this directory:  makepkg -si
+# To update later: pull or commit, then run `makepkg -si` again.
+
+pkgname=vtt-git
+pkgver=0.1.0.r0.g0000000
+pkgrel=1
+pkgdesc='Lightweight GPU-accelerated terminal with vertical tabs, a files panel and file previews'
+arch=('x86_64' 'aarch64')
+url='https://github.com/chris43123/vertical-tabs-terminal'
+license=('MIT')
+# winit and wgpu load the windowing and GPU libraries at runtime.
+depends=('gcc-libs' 'glibc' 'libxkbcommon' 'wayland' 'vulkan-icd-loader')
+optdepends=(
+  'libx11: X11 support'
+  'libxcursor: X11 support'
+  'libxrandr: X11 support'
+  'libxi: X11 support'
+)
+makedepends=('cargo' 'git')
+provides=('vtt')
+conflicts=('vtt')
+options=('!lto' '!debug')
+# The repository this PKGBUILD lives in (two levels up).
+source=("vtt::git+file://$(realpath "$startdir/../..")")
+sha256sums=('SKIP')
+
+pkgver() {
+  cd vtt
+  local version
+  version=$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -n1)
+  printf '%s.r%s.g%s' "$version" "$(git rev-list --count HEAD)" "$(git rev-parse --short=7 HEAD)"
+}
+
+prepare() {
+  cd vtt
+  export RUSTUP_TOOLCHAIN=stable
+  cargo fetch --locked --target "$(rustc -vV | sed -n 's/host: //p')"
+}
+
+build() {
+  cd vtt
+  export RUSTUP_TOOLCHAIN=stable
+  export CARGO_TARGET_DIR=target
+  cargo build --frozen --release
+}
+
+check() {
+  cd vtt
+  export RUSTUP_TOOLCHAIN=stable
+  export CARGO_TARGET_DIR=target
+  cargo test --frozen --release
+}
+
+package() {
+  cd vtt
+  install -Dm755 target/release/vtt "$pkgdir/usr/bin/vtt"
+  install -Dm644 packaging/vtt.desktop "$pkgdir/usr/share/applications/vtt.desktop"
+  install -Dm644 README.md "$pkgdir/usr/share/doc/vtt/README.md"
+  install -Dm644 config.example.toml "$pkgdir/usr/share/doc/vtt/config.example.toml"
+}
