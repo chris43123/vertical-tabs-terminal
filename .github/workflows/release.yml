@@ -1,11 +1,18 @@
 name: Release
 
 # Push a tag like `v0.2.0` (matching the version in Cargo.toml) to build every package and
-# publish a GitHub release with them. Run it by hand (Actions > Release > Run workflow) to
-# just build the packages as workflow artifacts.
+# publish a GitHub release with them. Run by hand (Actions > Release > Run workflow), or on a
+# pull request that changes packaging, it only builds the packages as workflow artifacts.
 on:
   push:
     tags: ['v*']
+  pull_request:
+    paths:
+      - '.github/workflows/release.yml'
+      - 'scripts/package-*'
+      - 'packaging/**'
+      - 'build.rs'
+      - 'Cargo.toml'
   workflow_dispatch:
 
 permissions:
