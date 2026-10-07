@@ -5,3 +5,6 @@
 /packaging/arch/pkg/
 /packaging/arch/vtt/
 /packaging/arch/*.pkg.tar.*
+
+# Release packages (scripts/package-*)
+/dist/

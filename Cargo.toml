@@ -4,6 +4,8 @@ version = "0.1.0"
 edition = "2024"
 description = "Vertical Tabs Terminal - a lightweight GPU-accelerated terminal with a vertical tab sidebar"
 license = "MIT"
+repository = "https://github.com/chris43123/vertical-tabs-terminal"
+readme = "README.md"
 
 [dependencies]
 eframe = { version = "0.36", default-features = false, features = ["wgpu", "default_fonts", "wayland", "x11", "persistence"] }
@@ -26,6 +28,53 @@ polling = "3.8"
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"
+
+[target.'cfg(windows)'.build-dependencies]
+winresource = "0.1"
+
+# Linux packages, built by scripts/package-linux.sh.
+[package.metadata.deb]
+maintainer = "Chris Andino"
+section = "x11"
+extended-description = "A lightweight GPU-accelerated terminal with a vertical tab sidebar, split panes, a files panel that follows your shell, and file previews."
+# winit and wgpu load the windowing and GPU libraries at runtime, so they aren't found
+# by the shared-library scan.
+depends = "$auto, libxkbcommon0"
+recommends = "libvulkan1, libwayland-client0, libxkbcommon-x11-0"
+assets = [
+  ["target/release/vtt", "usr/bin/", "755"],
+  ["packaging/vtt.desktop", "usr/share/applications/", "644"],
+  ["packaging/icons/vtt.svg", "usr/share/icons/hicolor/scalable/apps/", "644"],
+  ["packaging/icons/vtt-16.png", "usr/share/icons/hicolor/16x16/apps/vtt.png", "644"],
+  ["packaging/icons/vtt-32.png", "usr/share/icons/hicolor/32x32/apps/vtt.png", "644"],
+  ["packaging/icons/vtt-48.png", "usr/share/icons/hicolor/48x48/apps/vtt.png", "644"],
+  ["packaging/icons/vtt-64.png", "usr/share/icons/hicolor/64x64/apps/vtt.png", "644"],
+  ["packaging/icons/vtt-128.png", "usr/share/icons/hicolor/128x128/apps/vtt.png", "644"],
+  ["packaging/icons/vtt-256.png", "usr/share/icons/hicolor/256x256/apps/vtt.png", "644"],
+  ["packaging/icons/vtt-512.png", "usr/share/icons/hicolor/512x512/apps/vtt.png", "644"],
+  ["README.md", "usr/share/doc/vtt/", "644"],
+  ["config.example.toml", "usr/share/doc/vtt/", "644"],
+]
+
+[package.metadata.generate-rpm]
+assets = [
+  { source = "target/release/vtt", dest = "/usr/bin/vtt", mode = "755" },
+  { source = "packaging/vtt.desktop", dest = "/usr/share/applications/vtt.desktop", mode = "644" },
+  { source = "packaging/icons/vtt.svg", dest = "/usr/share/icons/hicolor/scalable/apps/vtt.svg", mode = "644" },
+  { source = "packaging/icons/vtt-16.png", dest = "/usr/share/icons/hicolor/16x16/apps/vtt.png", mode = "644" },
+  { source = "packaging/icons/vtt-32.png", dest = "/usr/share/icons/hicolor/32x32/apps/vtt.png", mode = "644" },
+  { source = "packaging/icons/vtt-48.png", dest = "/usr/share/icons/hicolor/48x48/apps/vtt.png", mode = "644" },
+  { source = "packaging/icons/vtt-64.png", dest = "/usr/share/icons/hicolor/64x64/apps/vtt.png", mode = "644" },
+  { source = "packaging/icons/vtt-128.png", dest = "/usr/share/icons/hicolor/128x128/apps/vtt.png", mode = "644" },
+  { source = "packaging/icons/vtt-256.png", dest = "/usr/share/icons/hicolor/256x256/apps/vtt.png", mode = "644" },
+  { source = "packaging/icons/vtt-512.png", dest = "/usr/share/icons/hicolor/512x512/apps/vtt.png", mode = "644" },
+  { source = "README.md", dest = "/usr/share/doc/vtt/README.md", mode = "644", doc = true },
+  { source = "config.example.toml", dest = "/usr/share/doc/vtt/config.example.toml", mode = "644", doc = true },
+  { source = "LICENSE", dest = "/usr/share/licenses/vtt/LICENSE", mode = "644", doc = true },
+]
+
+[package.metadata.generate-rpm.requires]
+libxkbcommon = "*"
 
 [profile.release]
 lto = "thin"

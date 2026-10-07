@@ -32,12 +32,16 @@ mod workspace;
 
 fn main() -> eframe::Result {
     let config = config::Config::load();
+    let mut viewport = eframe::egui::ViewportBuilder::default()
+        .with_title("vtt")
+        .with_app_id("vtt")
+        .with_inner_size([1100.0, 700.0])
+        .with_min_inner_size([400.0, 240.0]);
+    if let Some(icon) = window_icon() {
+        viewport = viewport.with_icon(icon);
+    }
     let options = eframe::NativeOptions {
-        viewport: eframe::egui::ViewportBuilder::default()
-            .with_title("vtt")
-            .with_app_id("vtt")
-            .with_inner_size([1100.0, 700.0])
-            .with_min_inner_size([400.0, 240.0]),
+        viewport,
         ..Default::default()
     };
     eframe::run_native(
@@ -45,4 +49,15 @@ fn main() -> eframe::Result {
         options,
         Box::new(|cc| Ok(Box::new(app::App::new(cc, config)))),
     )
+}
+
+/// The app icon for the window and taskbar (a bundled app's own icon takes precedence).
+fn window_icon() -> Option<eframe::egui::IconData> {
+    let png = include_bytes!("../packaging/icons/vtt-256.png");
+    let image = image::load_from_memory(png).ok()?.into_rgba8();
+    Some(eframe::egui::IconData {
+        width: image.width(),
+        height: image.height(),
+        rgba: image.into_raw(),
+    })
 }

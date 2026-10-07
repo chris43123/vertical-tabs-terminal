@@ -58,6 +58,13 @@ package() {
   cd vtt
   install -Dm755 target/release/vtt "$pkgdir/usr/bin/vtt"
   install -Dm644 packaging/vtt.desktop "$pkgdir/usr/share/applications/vtt.desktop"
+  install -Dm644 packaging/icons/vtt.svg "$pkgdir/usr/share/icons/hicolor/scalable/apps/vtt.svg"
+  local size
+  for size in 16 32 48 64 128 256 512; do
+    install -Dm644 "packaging/icons/vtt-$size.png" \
+      "$pkgdir/usr/share/icons/hicolor/${size}x${size}/apps/vtt.png"
+  done
   install -Dm644 README.md "$pkgdir/usr/share/doc/vtt/README.md"
   install -Dm644 config.example.toml "$pkgdir/usr/share/doc/vtt/config.example.toml"
+  install -Dm644 LICENSE "$pkgdir/usr/share/licenses/vtt/LICENSE"
 }

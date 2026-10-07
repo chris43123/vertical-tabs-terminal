@@ -84,6 +84,19 @@ impl Session {
         env.insert("TERM".into(), "xterm-256color".into());
         env.insert("COLORTERM".into(), "truecolor".into());
         env.insert("TERM_PROGRAM".into(), "vtt".into());
+        env.insert(
+            "TERM_PROGRAM_VERSION".into(),
+            env!("CARGO_PKG_VERSION").into(),
+        );
+        // Apps started from Finder or the Dock get no locale, so shells would fall back to
+        // ASCII. Terminal.app and iTerm2 set a UTF-8 one too.
+        if cfg!(target_os = "macos")
+            && ["LC_ALL", "LC_CTYPE", "LANG"]
+                .iter()
+                .all(|v| std::env::var_os(v).is_none())
+        {
+            env.insert("LANG".into(), "en_US.UTF-8".into());
+        }
 
         // `escape_args` only exists on Windows.
         #[allow(clippy::needless_update)]
