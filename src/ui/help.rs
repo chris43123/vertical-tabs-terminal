@@ -151,6 +151,7 @@ fn gestures() -> Vec<(&'static str, Vec<(&'static str, &'static str)>)> {
                 ("Right click", "File menu"),
             ],
         ),
+        ("Previews", previews(mac)),
         (
             "Palette",
             vec![
@@ -159,6 +160,35 @@ fn gestures() -> Vec<(&'static str, Vec<(&'static str, &'static str)>)> {
             ],
         ),
     ]
+}
+
+/// Selecting and copying in a focused preview (code, text and markdown source).
+fn previews(mac: bool) -> Vec<(&'static str, &'static str)> {
+    let mut rows = vec![
+        (
+            "Drag",
+            "Select text; near the edge it scrolls (markdown too)",
+        ),
+        ("Double / triple click", "Select a word / line"),
+        ("Click a line number", "Select that line"),
+        (
+            "Shift+click",
+            "Extend the selection (on a line number: whole lines)",
+        ),
+        ("Drag line numbers", "Select whole lines"),
+        ("Right click", "Copy, copy all, copy reference (path:12-40)"),
+        (
+            "Copy (toolbar)",
+            "The selection, or the whole file (markdown source when rendered)",
+        ),
+    ];
+    if mac {
+        rows.extend([("⌘A / ⌘C", "Select all / copy")]);
+    } else {
+        rows.extend([("Ctrl+A / Ctrl+C or Ctrl+Shift+C", "Select all / copy")]);
+    }
+    rows.push(("Esc", "Clear the selection"));
+    rows
 }
 
 impl App {

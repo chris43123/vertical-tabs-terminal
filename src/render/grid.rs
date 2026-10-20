@@ -156,14 +156,14 @@ fn luminance(c: Color32) -> f32 {
 }
 
 /// WCAG contrast ratio (1..=21) between two colors.
-fn contrast_ratio(a: Color32, b: Color32) -> f32 {
+pub fn contrast_ratio(a: Color32, b: Color32) -> f32 {
     let (la, lb) = (luminance(a), luminance(b));
     (la.max(lb) + 0.05) / (la.min(lb) + 0.05)
 }
 
 /// Move `fg` toward white or black until it reaches `ratio` against `bg`.
 /// Returns `fg` unchanged when it already qualifies or `ratio <= 1`.
-fn ensure_contrast(fg: Color32, bg: Color32, ratio: f32) -> Color32 {
+pub fn ensure_contrast(fg: Color32, bg: Color32, ratio: f32) -> Color32 {
     let ratio = ratio.clamp(1.0, 21.0);
     if ratio <= 1.0 || contrast_ratio(fg, bg) >= ratio {
         return fg;

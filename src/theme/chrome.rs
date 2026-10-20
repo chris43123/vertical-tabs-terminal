@@ -16,6 +16,8 @@ pub struct UiColors {
     pub purple: Color32,
     pub green: Color32,
     pub sidebar: Color32,
+    /// Background of selected text in previews (the theme's selection color).
+    pub selection: Color32,
     pub light: bool,
 }
 
@@ -27,6 +29,21 @@ fn c32([r, g, b]: Rgb) -> Color32 {
 pub fn mix(a: Color32, b: Color32, t: f32) -> Color32 {
     let l = |x: u8, y: u8| (x as f32 + (y as f32 - x as f32) * t).round() as u8;
     Color32::from_rgb(l(a.r(), b.r()), l(a.g(), b.g()), l(a.b(), b.b()))
+}
+
+/// The theme's selection color, unless it is too close to the background to see (some
+/// themes set it equal); then a blend toward the foreground. Text on it is kept readable
+/// separately, against `min_contrast`.
+fn selection_color(selection: Color32, bg: Color32, fg: Color32) -> Color32 {
+    let distance = |a: Color32, b: Color32| {
+        let d = |x: u8, y: u8| (x as i32 - y as i32).abs();
+        d(a.r(), b.r()) + d(a.g(), b.g()) + d(a.b(), b.b())
+    };
+    if distance(selection, bg) < 24 {
+        mix(bg, fg, 0.3)
+    } else {
+        selection
+    }
 }
 
 impl UiColors {
@@ -45,6 +62,7 @@ impl UiColors {
                 .sidebar
                 .map(c32)
                 .unwrap_or_else(|| mix(bg, Color32::BLACK, if light { 0.06 } else { 0.18 })),
+            selection: selection_color(c32(t.selection), bg, c32(t.foreground)),
             light,
         }
     }
@@ -72,5 +90,25 @@ impl UiColors {
         } else {
             Color32::WHITE
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn selection_comes_from_the_theme_and_stays_visible() {
+        let mut t = Theme {
+            selection: [0x40, 0x50, 0x90],
+            ..Theme::default()
+        };
+        assert_eq!(
+            UiColors::from_theme(&t).selection,
+            Color32::from_rgb(0x40, 0x50, 0x90)
+        );
+        t.selection = t.background;
+        let c = UiColors::from_theme(&t);
+        assert_ne!(c.selection, c.bg);
     }
 }

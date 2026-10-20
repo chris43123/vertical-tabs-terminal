@@ -7,15 +7,17 @@ mod markdown;
 use std::path::Path;
 
 use eframe::egui::{
-    self, Align, FontFamily, FontId, Layout, RichText, Sense, Stroke, Ui, UiBuilder, vec2,
+    self, Align, FontFamily, FontId, Id, Layout, Rect, RichText, Sense, Stroke, Ui, UiBuilder,
+    Vec2, vec2,
 };
 
 use crate::app::App;
+use crate::preview::selection::{Selection, autoscroll_axis};
 use crate::preview::{Body, Preview};
 use crate::theme::mix;
 use crate::workspace::TabId;
 
-use code::CodeView;
+use code::{CodeAction, CodeView};
 
 const TOOLBAR_HEIGHT: f32 = 28.0;
 
@@ -24,6 +26,11 @@ enum Action {
     OpenExternal,
     CopyPath,
     ToggleWrap,
+    /// The selection if there is one, else the whole text (the source, for markdown).
+    Copy,
+    CopyAll,
+    /// `path:lines` for the selection, or for this line.
+    CopyReference(usize),
 }
 
 impl App {
@@ -72,11 +79,17 @@ impl App {
                     text,
                     highlighted: highlighted.as_deref(),
                     font: FontId::new((font_size * 0.92).round(), FontFamily::Monospace),
+                    colors: &c,
+                    min_contrast: self.config.min_contrast,
                 };
-                if wrap {
-                    view.show_wrapped(ui, &mut preview.wrapped, &c);
-                } else {
-                    view.show(ui, &c);
+                let wrapped = &mut preview.wrapped;
+                match view.show(ui, &mut preview.selection, wrapped, wrap) {
+                    Some(CodeAction::Copy) => actions.push(Action::Copy),
+                    Some(CodeAction::CopyAll) => actions.push(Action::CopyAll),
+                    Some(CodeAction::CopyReference(line)) => {
+                        actions.push(Action::CopyReference(line));
+                    }
+                    None => {}
                 }
             }
             Body::Image => {
@@ -107,7 +120,11 @@ impl App {
                 return;
             };
             match action {
-                Action::ToggleSource => preview.show_source = !preview.show_source,
+                Action::ToggleSource => {
+                    preview.show_source = !preview.show_source;
+                    // The source selection isn't shown (or copied) while rendered.
+                    preview.selection = None;
+                }
                 Action::OpenExternal => {
                     if let Err(err) = crate::platform::open_with_default_app(&preview.path) {
                         crate::diag::warn(err);
@@ -118,6 +135,30 @@ impl App {
                     self.set_clipboard(path);
                 }
                 Action::ToggleWrap => self.previews.wrap = !self.previews.wrap,
+                Action::Copy => {
+                    let text = preview
+                        .selected_text()
+                        .or_else(|| preview.text().map(|t| t.text.clone()));
+                    if let Some(text) = text {
+                        self.set_clipboard(text);
+                    }
+                }
+                Action::CopyAll => {
+                    if let Some(text) = preview.text().map(|t| t.text.clone()) {
+                        self.set_clipboard(text);
+                    }
+                }
+                Action::CopyReference(line) => {
+                    let Some(text) = preview.text() else {
+                        continue;
+                    };
+                    let sel = preview
+                        .selection
+                        .filter(|s| !s.is_empty())
+                        .unwrap_or_else(|| Selection::lines(text, line, line));
+                    let reference = sel.reference(&preview.path.to_string_lossy(), text);
+                    self.set_clipboard(reference);
+                }
             }
         }
     }
@@ -154,12 +195,10 @@ fn toolbar(
     if ui.small_button("📋").on_hover_text("Copy path").clicked() {
         actions.push(Action::CopyPath);
     }
-    let shows_text = match preview.body {
-        Body::Code(_) => true,
-        Body::Markdown(_) => preview.show_source,
-        _ => false,
-    };
-    if shows_text
+    if preview.text().is_some() {
+        copy_button(ui, preview, actions);
+    }
+    if preview.shows_source()
         && ui
             .selectable_label(wrap, "Wrap")
             .on_hover_text("Wrap long lines to the pane's width")
@@ -202,6 +241,71 @@ fn toolbar(
         )
         .on_hover_text(preview.path.to_string_lossy());
     });
+}
+
+/// Copy: the selection, or the whole file (its markdown source when rendered).
+fn copy_button(ui: &mut Ui, preview: &Preview, actions: &mut Vec<Action>) {
+    let selected = preview.has_selection();
+    let hint = if selected {
+        "Copy the selection"
+    } else if preview.shows_source() {
+        "Copy the whole file (select text or line numbers to copy part of it)"
+    } else {
+        "Copy the selection, or the whole markdown source"
+    };
+    let response = ui.small_button("Copy").on_hover_text(hint);
+    if preview.shows_source() {
+        if response.clicked() {
+            actions.push(Action::Copy);
+        }
+        return;
+    }
+    // Rendered markdown keeps egui's own label selection, which egui clears as soon as
+    // something else is pressed. So act on the press: with a label selection, ask egui to
+    // copy it this frame (the labels are drawn after the toolbar); otherwise copy the source.
+    let pressed = response.is_pointer_button_down_on() && ui.input(|i| i.pointer.primary_pressed());
+    if pressed {
+        let has_label_selection = ui
+            .ctx()
+            .plugin::<egui::text_selection::LabelSelectionState>()
+            .lock()
+            .has_selection();
+        if has_label_selection {
+            ui.input_mut(|i| i.events.push(egui::Event::Copy));
+        } else {
+            actions.push(Action::Copy);
+        }
+    }
+}
+
+/// While a selection drag is active, scroll the area `id` when the pointer is near or past
+/// its edges (`inner`, on screen): faster the further out, along both axes with `horizontal`.
+/// Repaints only while it is actually scrolling.
+pub(super) fn autoscroll(
+    ctx: &egui::Context,
+    id: Id,
+    state: &egui::scroll_area::State,
+    inner: Rect,
+    content: Vec2,
+    horizontal: bool,
+) {
+    let Some((p, dt)) = ctx.input(|i| i.pointer.latest_pos().map(|p| (p, i.stable_dt))) else {
+        return;
+    };
+    let dy = autoscroll_axis(p.y, inner.top(), inner.bottom(), dt);
+    let dx = if horizontal {
+        autoscroll_axis(p.x, inner.left(), inner.right(), dt)
+    } else {
+        0.0
+    };
+    let max = (content - inner.size()).max(Vec2::ZERO);
+    let mut state = *state;
+    let before = state.offset;
+    state.offset = (state.offset + vec2(dx, dy)).clamp(Vec2::ZERO, max);
+    if state.offset != before {
+        state.store(ctx, id);
+        ctx.request_repaint();
+    }
 }
 
 fn notice(

@@ -3,6 +3,7 @@
 
 pub mod highlight;
 pub mod markdown;
+pub mod selection;
 
 use std::ops::Range;
 use std::path::{Path, PathBuf};
@@ -12,6 +13,7 @@ use std::time::SystemTime;
 use syntect::highlighting::Theme;
 
 use highlight::{Highlighter, Span};
+use selection::Selection;
 
 /// Larger files aren't loaded.
 const MAX_TEXT: u64 = 8 * 1024 * 1024;
@@ -58,6 +60,8 @@ pub struct Preview {
     pub markdown: Arc<Vec<crate::preview::markdown::Block>>,
     /// Soft-wrapped rows for the current width, when word wrap is on.
     pub wrapped: Option<Wrapped>,
+    /// Text selected in the source view, in document coordinates.
+    pub selection: Option<Selection>,
     highlighted: Highlighted,
     /// Theme generation a highlight job was started for.
     requested: Option<u64>,
@@ -70,6 +74,7 @@ impl Preview {
         Self {
             markdown: blocks(&body),
             wrapped: None,
+            selection: None,
             path,
             body,
             mtime,
@@ -90,6 +95,8 @@ impl Preview {
         self.body = load(&self.path, hl);
         self.markdown = blocks(&self.body);
         self.wrapped = None;
+        // Positions in the old text mean nothing in the new one.
+        self.selection = None;
         self.version += 1;
         self.highlighted = Arc::default();
         self.requested = None;
@@ -101,6 +108,28 @@ impl Preview {
             Body::Markdown(t) | Body::Code(t) => Some(t),
             _ => None,
         }
+    }
+
+    /// Whether the text is shown as lines (code, or markdown source) rather than rendered.
+    pub fn shows_source(&self) -> bool {
+        match self.body {
+            Body::Code(_) => true,
+            Body::Markdown(_) => self.show_source,
+            _ => false,
+        }
+    }
+
+    /// Whether text is selected in the source view (cheap: builds no string).
+    pub fn has_selection(&self) -> bool {
+        self.shows_source() && self.selection.is_some_and(|s| !s.is_empty())
+    }
+
+    /// The selected text in the source view, if anything is selected.
+    pub fn selected_text(&self) -> Option<String> {
+        if !self.has_selection() {
+            return None;
+        }
+        Some(self.selection?.text(self.text()?))
     }
 
     /// Highlighted lines for theme generation `generation`, if ready. Starts a worker the
@@ -433,6 +462,42 @@ mod tests {
         p.mtime = None; // mtime granularity can hide a same-second change
         assert!(p.reload_if_changed(&hl));
         assert_eq!(p.text().unwrap().lines.len(), 2);
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn reload_clears_the_selection() {
+        let hl = Highlighter::new();
+        let path = write(
+            "sel.txt",
+            b"alpha
+beta",
+        );
+        let mut p = Preview::open(path.clone(), &hl);
+        p.selection = Some(Selection::all(p.text().unwrap()));
+        assert_eq!(p.selected_text().as_deref(), Some("alpha\nbeta"));
+        // Unchanged file: the selection stays.
+        assert!(!p.reload_if_changed(&hl));
+        assert!(p.selection.is_some());
+        std::fs::write(&path, b"gamma").unwrap();
+        p.mtime = None;
+        assert!(p.reload_if_changed(&hl));
+        assert_eq!(p.selection, None);
+        assert_eq!(p.selected_text(), None);
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn rendered_markdown_has_no_source_selection() {
+        let hl = Highlighter::new();
+        let path = write("sel.md", b"# Title\ntext");
+        let mut p = Preview::open(path.clone(), &hl);
+        p.selection = Some(Selection::all(p.text().unwrap()));
+        assert_eq!(p.selected_text(), None);
+        assert!(!p.has_selection());
+        p.show_source = true;
+        assert!(p.has_selection());
+        assert_eq!(p.selected_text().as_deref(), Some("# Title\ntext"));
         let _ = std::fs::remove_file(path);
     }
 }
