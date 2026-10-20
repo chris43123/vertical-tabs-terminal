@@ -31,6 +31,8 @@ enum Action {
     CopyAll,
     /// `path:lines` for the selection, or for this line.
     CopyReference(usize),
+    /// egui was asked to copy rendered markdown's own selection (for the toast).
+    CopiedLabels,
 }
 
 impl App {
@@ -132,21 +134,24 @@ impl App {
                 }
                 Action::CopyPath => {
                     let path = preview.path.to_string_lossy().into_owned();
-                    self.set_clipboard(path);
+                    self.copy_with_toast(path, "Copied the path".into(), Some(id));
                 }
                 Action::ToggleWrap => self.previews.wrap = !self.previews.wrap,
                 Action::Copy => {
-                    let text = preview
-                        .selected_text()
-                        .or_else(|| preview.text().map(|t| t.text.clone()));
-                    if let Some(text) = text {
-                        self.set_clipboard(text);
+                    if let Some(text) = preview.selected_text() {
+                        let message = crate::ui::copied_summary(&text);
+                        self.copy_with_toast(text, message, Some(id));
+                    } else if let Some((text, message)) = copy_all(preview) {
+                        self.copy_with_toast(text, message, Some(id));
                     }
                 }
                 Action::CopyAll => {
-                    if let Some(text) = preview.text().map(|t| t.text.clone()) {
-                        self.set_clipboard(text);
+                    if let Some((text, message)) = copy_all(preview) {
+                        self.copy_with_toast(text, message, Some(id));
                     }
+                }
+                Action::CopiedLabels => {
+                    self.show_toast("Copied the selection".into(), Some(id), false);
                 }
                 Action::CopyReference(line) => {
                     let Some(text) = preview.text() else {
@@ -157,7 +162,13 @@ impl App {
                         .filter(|s| !s.is_empty())
                         .unwrap_or_else(|| Selection::lines(text, line, line));
                     let reference = sel.reference(&preview.path.to_string_lossy(), text);
-                    self.set_clipboard(reference);
+                    let name = preview
+                        .path
+                        .file_name()
+                        .unwrap_or_default()
+                        .to_string_lossy();
+                    let message = format!("Copied {}", sel.reference(&name, text));
+                    self.copy_with_toast(reference, message, Some(id));
                 }
             }
         }
@@ -243,6 +254,18 @@ fn toolbar(
     });
 }
 
+/// The whole text and its toast: the file, or the markdown source when rendered.
+fn copy_all(preview: &Preview) -> Option<(String, String)> {
+    let text = preview.text()?;
+    let what = if preview.shows_source() {
+        "the whole file"
+    } else {
+        "the markdown source"
+    };
+    let lines = crate::ui::toast_count(text.lines.len(), "line");
+    Some((text.text.clone(), format!("Copied {what} ({lines})")))
+}
+
 /// Copy: the selection, or the whole file (its markdown source when rendered).
 fn copy_button(ui: &mut Ui, preview: &Preview, actions: &mut Vec<Action>) {
     let selected = preview.has_selection();
@@ -271,7 +294,9 @@ fn copy_button(ui: &mut Ui, preview: &Preview, actions: &mut Vec<Action>) {
             .lock()
             .has_selection();
         if has_label_selection {
+            // App::copy_selection has already run this frame, so only egui sees this event.
             ui.input_mut(|i| i.events.push(egui::Event::Copy));
+            actions.push(Action::CopiedLabels);
         } else {
             actions.push(Action::Copy);
         }

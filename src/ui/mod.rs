@@ -1,5 +1,5 @@
 //! egui chrome: the vertical tab sidebar, the files panel, the split pane area (terminals and
-//! file previews), the tab switcher and the keyboard shortcuts window.
+//! file previews), the tab switcher, the keyboard shortcuts window and toasts.
 
 mod banner;
 mod files;
@@ -9,12 +9,14 @@ mod panes;
 mod preview;
 mod sidebar;
 mod switcher;
+mod toast;
 
 use std::path::Path;
 
 pub use files::FileDrag;
 pub use help::Help;
 pub use switcher::Switcher;
+pub use toast::{Toast, copied_summary, count as toast_count};
 
 /// A path for display: `$HOME` shown as `~`.
 pub fn display_path(path: &Path) -> String {

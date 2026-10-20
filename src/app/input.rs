@@ -176,19 +176,7 @@ impl App {
     /// nothing was selected.
     fn copy_selection(&mut self) -> bool {
         let Some(session) = self.focused_session() else {
-            let text = self
-                .ws
-                .focused()
-                .and_then(|f| self.tabs.get(&f))
-                .and_then(Tab::preview)
-                .and_then(|p| p.selected_text());
-            return match text {
-                Some(text) => {
-                    self.set_clipboard(text);
-                    true
-                }
-                None => false,
-            };
+            return self.copy_preview_selection();
         };
         let text = {
             let mut term = session.term.lock();
@@ -208,10 +196,43 @@ impl App {
         }
     }
 
+    /// Copy the focused preview's source selection, with a toast. Rendered markdown has egui's
+    /// own label selection, which egui copies itself; that only gets the toast.
+    fn copy_preview_selection(&mut self) -> bool {
+        let Some(id) = self.ws.focused() else {
+            return false;
+        };
+        let Some(preview) = self.tabs.get(&id).and_then(Tab::preview) else {
+            return false;
+        };
+        if let Some(text) = preview.selected_text() {
+            let message = crate::ui::copied_summary(&text);
+            self.copy_with_toast(text, message, Some(id));
+            return true;
+        }
+        let egui_copies = !preview.shows_source()
+            && preview.text().is_some()
+            && self
+                .ctx
+                .plugin::<egui::text_selection::LabelSelectionState>()
+                .lock()
+                .has_selection();
+        if egui_copies {
+            self.show_toast("Copied the selection".into(), Some(id), false);
+        }
+        egui_copies
+    }
+
     /// Copy text to the clipboard (used by right-click copy in panes).
     pub fn set_clipboard(&mut self, text: String) {
-        if let Some(cb) = &mut self.clipboard {
-            let _ = cb.set_text(text);
+        self.try_set_clipboard(text);
+    }
+
+    /// Copy text to the clipboard. Returns false if it couldn't be written.
+    pub fn try_set_clipboard(&mut self, text: String) -> bool {
+        match &mut self.clipboard {
+            Some(cb) => cb.set_text(text).is_ok(),
+            None => false,
         }
     }
 

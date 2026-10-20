@@ -115,7 +115,7 @@ Previews are tabs like any other: drag them, split them, close them, reopen them
 
 - **Markdown** renders with headings, lists, tables, links, local images, and highlighted code blocks. **Source** in the preview toolbar shows the raw text.
 - **Code and text** are syntax-highlighted in your theme's colors, with line numbers. Long lines wrap at word boundaries so narrow panes stay readable; **Wrap** in the toolbar switches that off (and `wrap = false` under `[files]` makes it the default). That covers Rust, Python, JS/TS, Go, C/C++, shell, TOML, YAML, JSON and many more. Minified JSON is reformatted for reading.
-- **Copying.** **Copy** in the toolbar copies the selection, or the whole file when nothing is selected (for rendered markdown, its source). In code and text (and markdown source):
+- **Copying.** **Copy** in the toolbar copies the selection, or the whole file when nothing is selected (for rendered markdown, its source). A short note at the bottom of the pane confirms what was copied ("Copied 3,000 lines"), or says so if the clipboard couldn't be written. In code and text (and markdown source):
   - Drag to select, `Shift+click` to extend, double-click a word, triple-click a line. The selection stays put however far you scroll, and dragging near or past the top or bottom edge scrolls, faster the further out you go (sideways too when lines don't wrap).
   - **Line numbers select whole lines:** click one to select that line, `Shift+click` another to select everything in between (lines 1 to 3000 in two clicks), or drag down the numbers.
   - `Ctrl+A` / `Ctrl+C` (`⌘A` / `⌘C`) select all and copy while the preview is focused; `Esc` clears the selection.
