@@ -17,7 +17,7 @@ use eframe::egui::{
 use crate::preview::highlight::Span;
 use crate::preview::selection::{Pos, Selection};
 use crate::preview::{Text, Wrapped};
-use crate::theme::{UiColors, mix};
+use crate::theme::{SelectionColors, UiColors, ensure_contrast, mix};
 use crate::workspace::TabId;
 
 /// Longer lines are cut for display.
@@ -61,7 +61,7 @@ pub(super) struct CodeView<'a> {
     pub(super) highlighted: Option<&'a Vec<Vec<Span>>>,
     pub(super) font: FontId,
     pub(super) colors: &'a UiColors,
-    /// Minimum contrast for selected text against the selection color.
+    /// The user's minimum contrast, applied to selected text on top of the selection colors.
     pub(super) min_contrast: f32,
 }
 
@@ -258,13 +258,9 @@ impl CodeView<'_> {
                     painter.rect_filled(
                         Rect::from_x_y_ranges(x0..=x1, y..=y + rh),
                         0.0,
-                        c.selection,
+                        c.selection.bg,
                     );
-                    if self.min_contrast > 1.0 {
-                        self.galley(ui, &row, Some(bytes.clone()))
-                    } else {
-                        galley
-                    }
+                    self.galley(ui, &row, Some(bytes.clone()))
                 }
                 None => galley,
             };
@@ -404,8 +400,8 @@ impl CodeView<'_> {
         action
     }
 
-    /// The galley for `row`; text in `selected` (bytes of the line) is kept readable on the
-    /// selection color.
+    /// The galley for `row`; text in `selected` (bytes of the line) is recolored to read on
+    /// the selection.
     fn galley(&self, ui: &Ui, row: &Row, selected: Option<Range<usize>>) -> Arc<Galley> {
         let line = self.text.line(row.line);
         let style = RowStyle {
@@ -463,9 +459,8 @@ fn shown(line: &str, range: &Range<usize>) -> Range<usize> {
 struct RowStyle<'a> {
     font: &'a FontId,
     fg: Color32,
-    /// Selected bytes of the line, the selection color, and the minimum contrast text on it
-    /// must keep.
-    selected: Option<(Range<usize>, Color32, f32)>,
+    /// Selected bytes of the line, the selection colors, and the user's minimum contrast.
+    selected: Option<(Range<usize>, SelectionColors, f32)>,
 }
 
 /// The bytes `range` of `line`, colored by the line's highlight `spans` (or plain).
@@ -496,8 +491,8 @@ fn row_job(line: &str, spans: Option<&[Span]>, range: Range<usize>, style: &RowS
                 continue;
             }
             let color = match &style.selected {
-                Some((sel, bg, ratio)) if sel.start <= x && y <= sel.end => {
-                    crate::render::ensure_contrast(color, *bg, *ratio)
+                Some((sel, colors, ratio)) if sel.start <= x && y <= sel.end => {
+                    ensure_contrast(colors.text(color), colors.bg, *ratio)
                 }
                 _ => color,
             };
@@ -572,21 +567,36 @@ mod tests {
     }
 
     #[test]
-    fn selected_text_keeps_minimum_contrast() {
+    fn selected_text_reads_on_the_selection() {
+        use crate::theme::{Theme, contrast_ratio};
         let font = FontId::monospace(12.0);
-        let gray = Color32::from_rgb(120, 120, 120);
-        let bg = Color32::from_rgb(110, 110, 110);
+        // Light text on a light selection (a matugen-style theme).
+        let theme = Theme {
+            foreground: [0xef, 0xd2, 0xc5],
+            background: [0x23, 0x18, 0x16],
+            selection: [0xff, 0xda, 0xd5],
+            ..Theme::default()
+        };
+        let light = Color32::from_rgb(0xef, 0xd2, 0xc5);
+        let colors = SelectionColors::from_theme(&theme);
         let style = RowStyle {
             font: &font,
-            fg: gray,
-            selected: Some((2..4, bg, 4.5)),
+            fg: light,
+            selected: Some((2..4, colors, 1.0)),
         };
         let job = row_job("abcdef", None, 0..6, &style);
         assert_eq!(job.text, "abcdef");
-        let colors: Vec<Color32> = job.sections.iter().map(|s| s.format.color).collect();
-        assert_eq!(colors.len(), 3);
-        assert_eq!((colors[0], colors[2]), (gray, gray));
-        assert!(crate::render::grid::contrast_ratio(colors[1], bg) >= 4.5);
+        let c: Vec<Color32> = job.sections.iter().map(|s| s.format.color).collect();
+        assert_eq!(c.len(), 3);
+        assert_eq!((c[0], c[2]), (light, light));
+        assert!(contrast_ratio(c[1], colors.bg) >= 4.5);
+        // A higher min_contrast still applies on top.
+        let style = RowStyle {
+            selected: Some((0..6, colors, 12.0)),
+            ..style
+        };
+        let job = row_job("abcdef", None, 0..6, &style);
+        assert!(contrast_ratio(job.sections[0].format.color, colors.bg) >= 12.0);
     }
 
     #[test]

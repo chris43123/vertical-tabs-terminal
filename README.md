@@ -271,8 +271,8 @@ show_hidden = false
 wrap = true
 
 # Inline color overrides, applied on top of the theme. Same keys as a theme file:
-# foreground, background, cursor, selection, ansi = [16 colors], colorN (any index 0-255),
-# and [colors.ui] accent / sidebar.
+# foreground, background, cursor, selection, selection_foreground, ansi = [16 colors],
+# colorN (any index 0-255), and [colors.ui] accent / sidebar.
 [colors]
 # background = "#101010"
 # color4 = "#7aa2f7"
@@ -320,6 +320,7 @@ Theme files come in two formats:
   background = "#1a1b26"
   cursor = "#c0caf5"
   selection = "#33467c"
+  selection_foreground = "#c0caf5"   # optional; see below
   ansi = ["#15161e", "#f7768e", "#9ece6a", "#e0af68", "#7aa2f7", "#bb9af7", "#7dcfff", "#a9b1d6",
           "#414868", "#f7768e", "#9ece6a", "#e0af68", "#7aa2f7", "#bb9af7", "#7dcfff", "#c0caf5"]
   color232 = "#101010"   # any palette index
@@ -327,9 +328,11 @@ Theme files come in two formats:
   accent = "#7aa2f7"     # optional; defaults to color4
   sidebar = "#16161e"    # optional; defaults to a shade of the background
   ```
-- **kitty format** (any other extension). `background`, `foreground`, `cursor`, `selection_background`, `colorN` and `active_border_color` (used as the accent) are read; everything else is ignored. Existing kitty themes and generated theme files therefore work unchanged.
+- **kitty format** (any other extension). `background`, `foreground`, `cursor`, `selection_background`, `selection_foreground`, `colorN` and `active_border_color` (used as the accent) are read; everything else is ignored. Existing kitty themes and generated theme files therefore work unchanged.
 
 The sidebar, pane headers and palette derive their colors from the theme, so light themes work too.
+
+Selected text stays readable, in terminals and previews alike. With `selection_foreground` in the theme, all selected text uses it (as in kitty). Without it, text keeps its color when that reads well on the selection, and otherwise switches to the theme's foreground or background, whichever contrasts more. `min_contrast` applies on top.
 
 **Live reload.** The config file and the active theme file are checked about once a second. Edits apply immediately to every tab and the UI. A config with a syntax error is reported on stderr and ignored until it's fixed.
 
@@ -355,6 +358,7 @@ foreground = "{{colors.on_surface.default.hex}}"
 background = "{{colors.surface.default.hex}}"
 cursor = "{{colors.on_surface.default.hex}}"
 selection = "{{colors.secondary_container.default.hex}}"
+selection_foreground = "{{colors.on_secondary_container.default.hex}}"
 [ui]
 accent = "{{colors.primary.default.hex}}"
 sidebar = "{{colors.surface_container_low.default.hex}}"
