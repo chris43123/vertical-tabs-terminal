@@ -2,14 +2,15 @@
 
 pub mod edit;
 pub mod keybinds;
+pub mod reference;
 pub mod watch;
 
 use std::collections::HashMap;
 use std::path::PathBuf;
 
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(default)]
 pub struct Config {
     pub font: FontConfig,
@@ -49,9 +50,17 @@ pub struct Config {
     pub focus_border_width: f32,
     /// What a bell (BEL) does.
     pub bell: BellMode,
+    /// Zen mode: width in points of the strip at the window's left edge that reveals the sidebar.
+    pub zen_edge_width: f32,
+    /// Moving the pointer over a pane in a split focuses it for keyboard input.
+    pub focus_follows_mouse: bool,
+    /// Hide the mouse pointer while typing into a terminal; it comes back when the mouse moves.
+    pub hide_pointer_when_typing: bool,
+    /// Copy text to the clipboard as soon as it's selected with the mouse.
+    pub copy_on_select: bool,
 }
 
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(rename_all = "lowercase")]
 pub enum CursorStyle {
     #[default]
@@ -60,7 +69,7 @@ pub enum CursorStyle {
     Underline,
 }
 
-#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
 #[serde(default)]
 pub struct CursorConfig {
     /// Shape used until a program sets its own (e.g. vim's insert-mode beam).
@@ -81,7 +90,7 @@ impl Default for CursorConfig {
     }
 }
 
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(rename_all = "lowercase")]
 pub enum BellMode {
     /// Mark the tab in the sidebar.
@@ -93,7 +102,7 @@ pub enum BellMode {
     None,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(default)]
 pub struct FilesConfig {
     /// Show the files panel at startup.
@@ -117,7 +126,7 @@ impl Default for FilesConfig {
     }
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(default)]
 pub struct FontConfig {
     /// Font family name; falls back to the system monospace font.
@@ -130,7 +139,7 @@ pub struct FontConfig {
     pub letter_spacing: f32,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct ProfileConfig {
     pub name: String,
     pub command: String,
@@ -170,6 +179,10 @@ impl Default for Config {
             cursor: CursorConfig::default(),
             focus_border_width: 1.0,
             bell: BellMode::Badge,
+            zen_edge_width: 16.0,
+            focus_follows_mouse: false,
+            hide_pointer_when_typing: true,
+            copy_on_select: false,
         }
     }
 }
@@ -205,8 +218,16 @@ impl Config {
             return Ok(Self::default());
         };
         match std::fs::read_to_string(&path) {
-            Ok(text) => toml::from_str(&text)
-                .map_err(|err| format!("invalid config {}: {err}", path.display())),
+            Ok(text) => {
+                let config = toml::from_str(&text)
+                    .map_err(|err| format!("invalid config {}: {err}", path.display()))?;
+                if let Ok(table) = toml::from_str::<toml::Table>(&text) {
+                    for problem in reference::lint(&table) {
+                        crate::diag::warn(format!("config: {problem}"));
+                    }
+                }
+                Ok(config)
+            }
             Err(_) => Ok(Self::default()),
         }
     }

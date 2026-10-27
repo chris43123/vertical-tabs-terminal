@@ -7,7 +7,7 @@
 use std::collections::HashMap;
 
 use eframe::egui::{Key, Modifiers};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum Action {
@@ -148,7 +148,7 @@ impl Action {
         }
     }
 
-    fn from_name(name: &str) -> Option<Self> {
+    pub fn from_name(name: &str) -> Option<Self> {
         if let Some(&(_, _, a)) = ACTIONS.iter().find(|(n, _, _)| *n == name) {
             return Some(a);
         }
@@ -335,7 +335,7 @@ fn parse_key(name: &str) -> Option<Key> {
 }
 
 /// A config value: one chord or a list. An empty string or empty list unbinds the action.
-#[derive(Clone, Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(untagged)]
 pub enum BindingConfig {
     One(String),

@@ -2,12 +2,21 @@
 //! They're printed to stderr and collected so the UI can show them in a banner.
 
 use std::sync::Mutex;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 static PROBLEMS: Mutex<Vec<String>> = Mutex::new(Vec::new());
+static QUIET: AtomicBool = AtomicBool::new(false);
+
+/// Collect problems without printing them (`vtt config check` prints its own report).
+pub fn set_quiet(quiet: bool) {
+    QUIET.store(quiet, Ordering::Relaxed);
+}
 
 pub fn warn(msg: impl Into<String>) {
     let msg = msg.into();
-    eprintln!("vtt: {msg}");
+    if !QUIET.load(Ordering::Relaxed) {
+        eprintln!("vtt: {msg}");
+    }
     PROBLEMS.lock().unwrap().push(msg);
 }
 

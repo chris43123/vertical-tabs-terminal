@@ -11,7 +11,7 @@ use std::time::Duration;
 use eframe::egui::text::{LayoutJob, TextWrapping};
 use eframe::egui::{
     self, Align2, Color32, CornerRadius, CursorIcon, FontId, Id, Rect, Sense, Stroke, StrokeKind,
-    Ui, pos2, vec2,
+    Ui, Vec2, pos2, vec2,
 };
 
 use crate::app::{App, TabDrag};
@@ -148,7 +148,7 @@ impl App {
         if self.tabs.get(&id).is_some_and(|t| t.preview().is_some()) {
             // Any click inside a preview focuses it (its widgets still get the click).
             let pressed = ui.input(|i| i.pointer.any_pressed());
-            if pressed && !focused && ui.rect_contains_pointer(body) {
+            if (pressed || self.hover_focus(ui)) && !focused && ui.rect_contains_pointer(body) {
                 actions.push(PaneAction::Focus(id));
             }
             if !split {
@@ -184,7 +184,10 @@ impl App {
         session.resize(size, self.fonts.cell_px());
 
         let resp = ui.interact(body, Id::new(("term", id)), Sense::click_and_drag());
-        if (resp.clicked() || resp.drag_started() || resp.secondary_clicked()) && !focused {
+        let hover_focus = resp.hovered() && self.hover_focus(ui);
+        if (resp.clicked() || resp.drag_started() || resp.secondary_clicked() || hover_focus)
+            && !focused
+        {
             actions.push(PaneAction::Focus(id));
         }
         if resp.hovered() {
@@ -238,6 +241,15 @@ impl App {
         self.pane_overlays(ui, id, rect, body, split, focused);
         self.drop_zone(ui, id, rect, actions);
         self.file_drop(ui, id, rect, actions);
+    }
+
+    /// `focus_follows_mouse`: the pointer moved onto a pane (with no button held or drag
+    /// going on), so it takes keyboard focus. Moving is required so a pointer resting over
+    /// a pane doesn't steal focus back after switching panes with the keyboard.
+    fn hover_focus(&self, ui: &Ui) -> bool {
+        self.config.focus_follows_mouse
+            && !egui::DragAndDrop::has_any_payload(ui.ctx())
+            && ui.input(|i| i.pointer.delta() != Vec2::ZERO && !i.pointer.any_down())
     }
 
     /// Drawn over a finished pane: the visual bell flash and, in splits, the focus border.

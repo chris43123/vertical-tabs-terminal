@@ -65,11 +65,11 @@ impl App {
         let in_active = view == Some(self.ws.active);
         let in_split = view.is_some_and(|v| self.ws.views[v].root.is_split());
 
-        // Background.
+        // Background: the focused tab takes a tint of the accent, its split siblings a faint lift.
         let bg = if focused {
-            c.raised_sidebar(0.16)
+            mix(c.sidebar, c.accent, if c.light { 0.16 } else { 0.22 })
         } else if in_active {
-            c.raised_sidebar(0.09)
+            c.raised_sidebar(0.06)
         } else if resp.hovered() {
             c.raised_sidebar(0.06)
         } else {

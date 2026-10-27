@@ -31,7 +31,12 @@ mod ui;
 mod workspace;
 
 fn main() -> eframe::Result {
+    let args: Vec<String> = std::env::args().skip(1).collect();
+    if let Some(code) = config::reference::run_cli(&args) {
+        std::process::exit(code);
+    }
     let config = config::Config::load();
+    config::reference::write_beside_config();
     let mut viewport = eframe::egui::ViewportBuilder::default()
         .with_title("vtt")
         .with_app_id("vtt")

@@ -83,7 +83,7 @@ On Linux and Windows, vtt only binds the shortcuts terminals conventionally use 
 | Keyboard shortcuts: every shortcut and mouse gesture, click one to rebind it | `Ctrl+Shift+/` (`Ctrl+?`) | `⌘⇧/` (`⌘?`) |
 | Copy / paste | `Ctrl+Shift+C` / `Ctrl+Shift+V`, plus `Ctrl+V` | `⌘C` / `⌘V` |
 
-`Ctrl+C` copies when text is selected; otherwise it sends an interrupt as usual. Pane-focus and next/previous-tab keys pass through to the shell when there is nothing to move to (a single tab, or no pane in that direction).
+`Ctrl+C` copies when text is selected; otherwise it sends an interrupt as usual. Set `copy_on_select = true` to copy as soon as you finish selecting with the mouse. Pane-focus and next/previous-tab keys pass through to the shell when there is nothing to move to (a single tab, or no pane in that direction).
 
 **The palette** (`Ctrl+Shift+P`) fuzzy-searches your tabs, every command (each shown with its shortcut, so it doubles as a cheat sheet) and "new tab with profile X".
 - It opens with your previously focused tab selected, so `Ctrl+Shift+P`, `Enter` flips between two tabs.
@@ -161,7 +161,11 @@ It packages the latest *committed* state and installs `vtt` to `/usr/bin` with a
 **From source, anywhere with Rust:** `scripts/install-local.sh` builds your working tree (uncommitted changes included, no sudo) and installs it for your user:
 
 - Linux: `vtt` goes to `~/.cargo/bin`, with a desktop entry and icons in `~/.local/share`, so it shows up in your app launcher (`~/.cargo/bin` must be on the launcher's `PATH`). If the `vtt-git` package is also installed it wins on `PATH`, so remove it first.
-- macOS: builds `vtt.app` and copies it to `/Applications`.
+- macOS: builds `vtt.app` and copies it to `/Applications`. This doesn't put a `vtt` command on your `PATH`; to use the [command line](#from-the-command-line), link the app's binary into a directory that is, once (later installs update it through the link):
+
+  ```sh
+  ln -sf /Applications/vtt.app/Contents/MacOS/vtt ~/.local/bin/vtt
+  ```
 
 Or just `cargo install --path .` for the bare binary.
 
@@ -207,6 +211,28 @@ The easiest way in is **Open settings**: press `Ctrl+,` (`⌘,` on macOS), click
 - Without an editor configured, it opens in your system's default text editor.
 
 Changes apply as soon as you save; there's no need to restart. If something in the file is wrong (a syntax error, an unknown theme, a bad shortcut), a banner in the bottom-right corner says what and where. It disappears once the file is fixed. While the config has a syntax error, vtt keeps your previous settings.
+
+### From the command line
+
+`vtt config` reads and changes the config file without opening it, which is handy for scripts, dotfiles and AI agents. Keys in tables are dotted (`font.size`, `cursor.style`, `keybindings.new_tab`).
+
+```sh
+vtt config get font.size                         # 14.0
+vtt config set font.size 16                      # font.size = 16.0
+vtt config set editor "code --wait"
+vtt config set keybindings.new_tab ctrl+alt+t f2  # one or more shortcuts
+vtt config set keybindings.close_tab             # no shortcuts: unbind it
+vtt config unset font.size                       # back to the default
+vtt config check                                 # validate (exit code 1 on problems)
+vtt config reference                             # every key, default and allowed value
+vtt config path                                  # where the file lives
+```
+
+`vtt config` with no subcommand (or `vtt config --help`) prints this list. Any other arguments, including `vtt --help`, are ignored and open the app.
+
+`set` creates the file from the example if needed, keeps your comments and layout, and refuses values of the wrong type, out of range or otherwise invalid (an unknown theme, a bad shortcut), leaving the file untouched. A running vtt picks the change up live. Profiles and colors are edited in the file itself.
+
+The full reference is also written as `REFERENCE.md` next to the config file.
 
 Every key is optional. The example below shows the defaults. It is also available as [`config.example.toml`](config.example.toml).
 

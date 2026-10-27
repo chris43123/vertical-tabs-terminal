@@ -149,6 +149,15 @@ impl App {
             }
         }
 
+        // copy_on_select: copy once a mouse selection is finished, keeping it highlighted.
+        let finished = resp.drag_stopped_by(PointerButton::Primary)
+            || resp.double_clicked()
+            || resp.triple_clicked();
+        let selected = (self.config.copy_on_select && finished)
+            .then(|| session.term.lock().selection_to_string())
+            .flatten()
+            .filter(|s| !s.is_empty());
+
         // Right click: copy the selection if any, otherwise paste (Windows Terminal style).
         if resp.secondary_clicked() {
             let text = {
@@ -168,6 +177,9 @@ impl App {
                     }
                 }
             }
+        }
+        if let Some(text) = selected {
+            self.set_clipboard(text);
         }
     }
 

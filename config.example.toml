@@ -3,6 +3,8 @@
 # macOS:   ~/Library/Application Support/vtt/config.toml
 # Windows: %APPDATA%\vtt\config.toml
 # Every key is optional; omitted keys use the defaults shown here.
+# Full reference (types, allowed values, every shortcut action): REFERENCE.md next to this
+# file, or `vtt config reference`. Validate edits with `vtt config check`.
 
 # Lines of scrollback kept per tab.
 scrollback = 10000
@@ -50,6 +52,20 @@ focus_border_width = 1.0
 # What a terminal bell does: "badge" marks the tab in the sidebar, "flash" also flashes
 # the pane, "none" ignores it.
 bell = "badge"
+
+# Zen mode: width in points of the strip at the window's left edge that reveals the sidebar
+# when the pointer touches it.
+zen_edge_width = 16.0
+
+# Focus a pane in a split by moving the pointer over it, without clicking.
+focus_follows_mouse = false
+
+# Hide the mouse pointer while typing into a terminal; it comes back when the mouse moves.
+hide_pointer_when_typing = true
+
+# Copy text to the clipboard as soon as you finish selecting it with the mouse
+# (drag, double or triple click). The selection stays highlighted.
+copy_on_select = false
 
 [font]
 # Font family; defaults to the system monospace font.

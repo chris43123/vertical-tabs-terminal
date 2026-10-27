@@ -69,7 +69,13 @@ impl App {
         };
         let overlay = Rect::from_min_size(area.min, vec2(width, area.height()));
 
-        if pointer.is_some_and(|p| p.x <= area.min.x + 4.0 && area.contains(p)) && !dragging {
+        // Not while a button is held, so selecting text from the first column doesn't open it.
+        let edge = self.config.zen_edge_width.max(1.0);
+        let pressed = ctx.input(|i| i.pointer.any_down());
+        if pointer.is_some_and(|p| p.x <= area.min.x + edge && area.contains(p))
+            && !dragging
+            && !pressed
+        {
             if !self.side.zen_peek {
                 self.side.zen_peek = true;
             }

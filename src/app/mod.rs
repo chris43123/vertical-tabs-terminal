@@ -69,6 +69,8 @@ pub struct App {
     pub pane_rects: Vec<(TabId, egui::Rect)>,
     /// Sub-line scroll accumulator in points.
     pub scroll_accum: f32,
+    /// The mouse pointer is hidden because of typing, until the mouse moves.
+    pub pointer_hidden: bool,
     /// Scroll the sidebar so the focused tab is visible (after keyboard navigation).
     pub scroll_to_focused: bool,
     /// The tab switcher / command palette, when open.
@@ -154,6 +156,7 @@ impl App {
             renaming: None,
             pane_rects: Vec::new(),
             scroll_accum: 0.0,
+            pointer_hidden: false,
             scroll_to_focused: false,
             switcher: None,
             help: None,
@@ -309,6 +312,7 @@ impl eframe::App for App {
         self.help_ui(&ctx);
         self.problems_banner(&ctx);
         self.track_focus();
+        self.hide_pointer_while_typing(&ctx);
         self.update_window_title();
     }
 }

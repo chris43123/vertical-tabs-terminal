@@ -124,6 +124,7 @@ impl App {
     /// Write user input to the focused tab, snapping the view back to the bottom.
     pub(super) fn send_input(&mut self, bytes: Vec<u8>) {
         self.blink_epoch = Instant::now();
+        self.pointer_hidden = self.config.hide_pointer_when_typing;
         if let Some(session) = self.focused_session() {
             {
                 let mut term = session.term.lock();
@@ -131,6 +132,20 @@ impl App {
                 term.selection = None;
             }
             session.write(bytes);
+        }
+    }
+
+    /// Keep the pointer hidden after typing until the mouse moves or a button is pressed.
+    /// Runs after the panes so it overrides the cursor icon they set.
+    pub(super) fn hide_pointer_while_typing(&mut self, ctx: &egui::Context) {
+        if !self.pointer_hidden {
+            return;
+        }
+        let moved = ctx.input(|i| i.pointer.delta() != egui::Vec2::ZERO || i.pointer.any_down());
+        if moved {
+            self.pointer_hidden = false;
+        } else {
+            ctx.set_cursor_icon(egui::CursorIcon::None);
         }
     }
 
