@@ -31,6 +31,8 @@ pub struct FavoritesState {
     exited: HashSet<FavId>,
     /// Favorites whose directory was missing when last checked (load, reload, click).
     missing: HashSet<FavId>,
+    /// The favorites' tabs when the tab order was last synced to them.
+    synced: Vec<FavoriteTabs>,
 }
 
 impl FavoritesState {
@@ -183,6 +185,17 @@ fn group_favorite_tabs(
         .collect()
 }
 
+/// The favorites' tabs (each followed by its split's others), then the rest of `order`.
+fn sidebar_order(groups: &[FavoriteTabs], order: &[TabId]) -> Vec<TabId> {
+    let mut out: Vec<TabId> = groups
+        .iter()
+        .flat_map(|g| std::iter::once(g.tab).chain(g.siblings.iter().copied()))
+        .collect();
+    let under: HashSet<TabId> = out.iter().copied().collect();
+    out.extend(order.iter().copied().filter(|t| !under.contains(t)));
+    out
+}
+
 /// Whether `tab` is a favorite's own tab or one of its split's other tabs.
 fn in_favorite_split(groups: &[FavoriteTabs], tab: TabId) -> bool {
     groups
@@ -193,11 +206,28 @@ fn in_favorite_split(groups: &[FavoriteTabs], tab: TabId) -> bool {
 /// How a broken favorites file is reported (see [`Store::load`]).
 const INVALID_FILE: &str = "invalid favorites file";
 
+/// How every warning about one favorite starts (see `favorites::sanitize` and
+/// [`unknown_profile_warning`]), so a reload can tell them from other banner lines.
+const FAVORITE_PROBLEM: &str = "favorite `";
+
 /// Report what loading had to fix in a hand-edited file.
 fn warn_problems(list: &Favorites) {
     for p in &list.problems {
         crate::diag::warn(p.clone());
     }
+}
+
+fn unknown_profile_warning(name: &str, profile: &str) -> String {
+    format!("favorite `{name}`: unknown profile `{profile}`, using the default")
+}
+
+/// After the favorites file loaded cleanly: drop the banner lines about it that no longer
+/// hold (a broken file, a favorite fixed or removed since). `fresh` are the warnings the new
+/// list still raises; they stay, so one already in the banner isn't shown again.
+fn drop_fixed_problems(problems: &mut Vec<String>, fresh: &[String]) {
+    problems.retain(|p| {
+        !p.starts_with(INVALID_FILE) && (!p.starts_with(FAVORITE_PROBLEM) || fresh.contains(p))
+    });
 }
 
 impl App {
@@ -208,10 +238,11 @@ impl App {
         };
         match store.load() {
             Ok(list) => {
-                // The file is readable again: drop the banner that said it wasn't.
-                self.problems.retain(|p| !p.starts_with(INVALID_FILE));
                 warn_problems(&list);
+                let mut fresh = list.problems.clone();
                 self.favorites.replace(list);
+                fresh.extend(self.unknown_profile_warnings());
+                drop_fixed_problems(&mut self.problems, &fresh);
                 self.warn_unknown_profiles();
                 self.sync_favorite_order();
             }
@@ -221,16 +252,22 @@ impl App {
 
     /// Favorites naming a profile that doesn't exist (anymore) open with the default one.
     pub(super) fn warn_unknown_profiles(&self) {
-        for f in &self.favorites.list.list {
-            if let Some(p) = &f.profile
-                && !self.profiles.iter().any(|known| &known.name == p)
-            {
-                crate::diag::warn(format!(
-                    "favorite `{}`: unknown profile `{p}`, using the default",
-                    f.name
-                ));
-            }
+        for w in self.unknown_profile_warnings() {
+            crate::diag::warn(w);
         }
+    }
+
+    fn unknown_profile_warnings(&self) -> Vec<String> {
+        self.favorites
+            .list
+            .list
+            .iter()
+            .filter_map(|f| {
+                let p = f.profile.as_deref()?;
+                (!self.profiles.iter().any(|known| known.name == p))
+                    .then(|| unknown_profile_warning(&f.name, p))
+            })
+            .collect()
     }
 
     /// The recipe favorite `fav` opens with now: its profile (else the default), its path and
@@ -301,6 +338,21 @@ impl App {
         for g in self.favorite_tabs().into_iter().rev() {
             self.ws.reorder(g.tab, 0);
         }
+        self.favorites.synced = self.favorite_tabs();
+    }
+
+    /// Once a frame: sync the tab order if a tab joined or left a favorite's split (or a
+    /// favorite's tab opened or closed) since the last sync, whichever path did it.
+    pub(super) fn sync_favorite_order_on_change(&mut self) {
+        if self.favorite_tabs() != self.favorites.synced {
+            self.sync_favorite_order();
+        }
+    }
+
+    /// Every tab in the order the sidebar lists them: each open favorite's tab and its split,
+    /// then the tab list. Next/previous tab and "go to tab N" follow it.
+    pub(super) fn sidebar_order(&self) -> Vec<TabId> {
+        sidebar_order(&self.favorite_tabs(), &self.ws.order)
     }
 
     /// Tabs the sidebar shows under a favorite rather than in the tab list.
@@ -650,5 +702,46 @@ mod tests {
         std::fs::create_dir(root.join("b")).unwrap();
         assert!(s.check(&b));
         assert!(!s.is_missing(&b));
+    }
+
+    #[test]
+    fn a_clean_reload_drops_the_favorite_warnings_it_no_longer_raises() {
+        // What a hand-edited file raises, and an unknown profile, both read as favorite lines.
+        let text = "version = 1\n\
+            [[favorite]]\nid = \"f1\"\nname = \"a\"\npath = \"/x\"\ncommand = \"make\\nrm\"\n";
+        let dropped = Favorites::parse(text).unwrap().problems.remove(0);
+        let profile = unknown_profile_warning("b", "work");
+        assert!(dropped.starts_with(FAVORITE_PROBLEM), "{dropped}");
+        assert!(profile.starts_with(FAVORITE_PROBLEM), "{profile}");
+
+        let config = "config.toml: unknown key `x`".to_string();
+        let broken = format!("{INVALID_FILE} /f.toml: bad (keeping the previous favorites)");
+        let mut banner = vec![config.clone(), broken, dropped.clone(), profile.clone()];
+        // Fixed: the command is gone, the profile still unknown.
+        drop_fixed_problems(&mut banner, std::slice::from_ref(&profile));
+        assert_eq!(banner, [config.clone(), profile]);
+        // All fixed.
+        drop_fixed_problems(&mut banner, &[]);
+        assert_eq!(banner, [config]);
+    }
+
+    #[test]
+    fn sidebar_order_puts_each_favorite_before_its_split() {
+        // f1 is tab 4, split later with tab 2 (left of it, so before it in the order);
+        // f2 is tab 5. Tabs 1 and 3 are plain.
+        let groups = [
+            FavoriteTabs {
+                id: "f1".into(),
+                tab: 4,
+                siblings: vec![2],
+            },
+            FavoriteTabs {
+                id: "f2".into(),
+                tab: 5,
+                siblings: vec![],
+            },
+        ];
+        assert_eq!(sidebar_order(&groups, &[1, 2, 3, 4, 5]), [4, 2, 5, 1, 3]);
+        assert_eq!(sidebar_order(&[], &[1, 2, 3]), [1, 2, 3]);
     }
 }

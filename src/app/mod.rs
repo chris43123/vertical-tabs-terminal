@@ -357,6 +357,7 @@ impl eframe::App for App {
             }
         }
         self.panes(ui);
+        self.sync_favorite_order_on_change();
         self.switcher_ui(&ctx);
         self.help_ui(&ctx);
         self.reset_prompt_ui(&ctx);

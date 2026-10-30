@@ -76,7 +76,7 @@ impl App {
 
         let mut rects = Vec::with_capacity(ids.len());
         let mut content = Rect::NOTHING;
-        let visible = egui::ScrollArea::vertical()
+        let output = egui::ScrollArea::vertical()
             .id_salt(("favorites", expanded))
             .max_height(max_height)
             .auto_shrink([false, true])
@@ -98,12 +98,29 @@ impl App {
                         }
                     }
                 }
-            })
-            .inner_rect;
+            });
+        let visible = output.inner_rect;
 
         // Reorder: an insertion line between favorites while one is dragged over them.
         // Row rects are where the rows are, scrolled out of view or not.
         let dragged = egui::DragAndDrop::payload::<FavDrag>(ui.ctx()).map(|p| p.0.clone());
+        // Near the section's top or bottom edge, scroll it so the drop can land anywhere.
+        // Only while a favorite is dragged over it: the helper repaints only as it scrolls.
+        if dragged.is_some()
+            && ui
+                .ctx()
+                .input(|i| i.pointer.latest_pos())
+                .is_some_and(|p| visible.contains(p))
+        {
+            crate::ui::preview::autoscroll(
+                ui.ctx(),
+                output.id,
+                &output.state,
+                visible,
+                output.content_size,
+                false,
+            );
+        }
         if let (Some(dragged), Some(pos)) = (dragged, ui.ctx().input(|i| i.pointer.hover_pos()))
             && visible.expand2(vec2(0.0, 6.0)).contains(pos)
         {

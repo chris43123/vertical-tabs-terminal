@@ -75,7 +75,8 @@ impl App {
                 if self.ws.order.len() < 2 {
                     return false;
                 }
-                self.ws.cycle(action == Action::NextTab);
+                let order = self.sidebar_order();
+                self.ws.cycle(&order, action == Action::NextTab);
             }
             Action::MoveTabUp | Action::MoveTabDown => {
                 if let Some(f) = self.ws.focused() {
@@ -83,14 +84,14 @@ impl App {
                 }
             }
             Action::GotoTab(n) => {
-                if let Some(&id) = self.ws.order.get(n as usize - 1) {
+                if let Some(&id) = self.sidebar_order().get(n as usize - 1) {
                     self.ws.activate(id);
                 }
             }
             Action::AddFavorite => self.start_add_favorite(None),
             Action::OpenFavorite(n) => return self.open_favorite_at(n as usize),
             Action::LastTab => {
-                if let Some(&id) = self.ws.order.last() {
+                if let Some(&id) = self.sidebar_order().last() {
                     self.ws.activate(id);
                 }
             }
