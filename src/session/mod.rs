@@ -282,8 +282,8 @@ impl Session {
 
     /// Turn the saved data back into a workspace whose tab ids start at `first_id`, with each
     /// tab's profile, directory and favorite resolved: an unknown profile becomes the
-    /// default one (`profiles[0]`) without the command, so nothing is typed into a shell the
-    /// user didn't choose; a missing directory becomes the profile's cwd, else `home`; and a
+    /// default one (`profiles[0]`) without the command, so not even Reset types it into a
+    /// shell the user didn't choose; a missing directory becomes the profile's cwd, else `home`; and a
     /// favorite that no longer exists (per `favorite_exists`) loses its link.
     pub fn rebuild(
         &self,

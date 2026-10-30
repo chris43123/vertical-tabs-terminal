@@ -104,8 +104,11 @@ impl App {
     }
 
     /// Start dormant tab `id`'s shell in place from its recipe: same id, so its position,
-    /// split, folder, name and favorite link stay. A shell that fails to start (reported in
-    /// the banner) closes the tab, so it isn't retried every frame.
+    /// split, folder, name and favorite link stay. Only the shell starts, in the saved
+    /// directory: the saved command is not typed, so coming back never relaunches a
+    /// long-running program on its own. It stays in the recipe for an explicit Reset. A shell
+    /// that fails to start (reported in the banner) closes the tab, so it isn't retried every
+    /// frame.
     pub(super) fn wake(&mut self, id: TabId) {
         let Some(recipe) = self
             .tabs
@@ -126,7 +129,7 @@ impl App {
         };
         if let Some(tab) = self.tabs.get_mut(&id) {
             tab.content = super::Content::Term(session);
-            tab.pending_input = recipe.typed_input();
+            tab.pending_input = None;
             tab.cwd = recipe.dir.clone();
         }
         self.ctx.request_repaint();
