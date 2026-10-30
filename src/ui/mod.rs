@@ -1,7 +1,9 @@
 //! egui chrome: the vertical tab sidebar, the files panel, the split pane area (terminals and
-//! file previews), the tab switcher, the keyboard shortcuts window, the reset confirmation and toasts.
+//! file previews), the tab switcher, the keyboard shortcuts window, the reset confirmation, the
+//! favorite dialog and toasts.
 
 mod banner;
+mod favorite_dialog;
 mod files;
 mod help;
 pub mod icons;
@@ -15,6 +17,7 @@ pub mod view_names;
 
 use std::path::Path;
 
+pub use favorite_dialog::FavoriteDialog;
 pub use files::FileDrag;
 pub use help::Help;
 pub use reset_prompt::ResetPrompt;

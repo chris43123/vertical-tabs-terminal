@@ -1,7 +1,8 @@
-//! The vertical tab sidebar: tab rows, split views under a named header, folders (Zen-style
+//! The vertical tab sidebar: pinned favorites above the tabs, tab rows, split views under a named header, folders (Zen-style
 //! tab groups), badges, rename, reorder, drag source, a long-hover card with the tab's cwd,
 //! and the collapsed icon strip that peeks open on hover.
 
+mod favorites;
 mod folder;
 mod tab_row;
 mod view_row;
@@ -11,7 +12,10 @@ use eframe::egui::{self, CornerRadius, Rect, Sense, Stroke, StrokeKind, Ui, vec2
 
 use crate::app::{App, RenameTarget, TabDrag};
 use crate::config::keybinds::Action as Shortcut;
-use crate::workspace::{GroupId, TabId};
+use crate::favorites::FavId;
+use crate::workspace::{Edge, GroupId, TabId};
+
+pub use favorites::FavDrag;
 
 const COLLAPSED_WIDTH: f32 = 48.0;
 const ROW_HEIGHT: f32 = 30.0;
@@ -57,6 +61,16 @@ enum Action {
     ToggleFiles,
     /// A file or folder from the files panel dropped on the tab list.
     OpenPath(std::path::PathBuf),
+    /// Open (or focus) a favorite, in a split on that edge if given.
+    OpenFavorite(FavId, Option<Edge>),
+    ResetFavorite(FavId),
+    RevealFavorite(FavId),
+    EditFavorite(FavId),
+    RemoveFavorite(FavId),
+    /// Drag reorder: move a favorite to this index (in the list before the move).
+    MoveFavorite(FavId, usize),
+    /// Open the favorite dialog for this directory.
+    AddFavorite(Option<std::path::PathBuf>),
 }
 
 /// A line in the tab list.
@@ -162,6 +176,7 @@ impl App {
         }
         ui.add_space(4.0);
         ui.separator();
+        self.favorites_section(ui, expanded, actions);
 
         let dragged = egui::DragAndDrop::payload::<TabDrag>(ui.ctx()).map(|p| p.0);
         let rows = self.sidebar_rows();
@@ -393,6 +408,13 @@ impl App {
                 }
             }
             Action::OpenPath(path) => self.open_path_tab(path),
+            Action::OpenFavorite(id, split) => self.open_favorite(&id, split),
+            Action::ResetFavorite(id) => self.reset_favorite(&id),
+            Action::RevealFavorite(id) => self.reveal_favorite(&id),
+            Action::EditFavorite(id) => self.start_edit_favorite(&id),
+            Action::RemoveFavorite(id) => self.remove_favorite(&id),
+            Action::MoveFavorite(id, to) => self.move_favorite(&id, to),
+            Action::AddFavorite(dir) => self.start_add_favorite(dir),
         }
     }
 }

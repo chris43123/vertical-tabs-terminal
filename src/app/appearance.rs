@@ -128,7 +128,8 @@ impl App {
         }
 
         let resolved = theme::resolve(&self.config);
-        self.watcher.set_paths(watch_paths(resolved.file));
+        self.watcher
+            .set_paths(watch_paths(resolved.file, self.favorites.store_path()));
         // An explicit theme change wins over any previously adopted shell palette.
         self.shell_patch = Patch::default();
         if resolved.theme != self.base_theme {
@@ -137,6 +138,8 @@ impl App {
             self.set_theme(&theme);
             self.reset_tab_colors();
         }
+        // Profiles may have changed under the favorites.
+        self.warn_unknown_profiles();
     }
 
     /// Create the config if needed and open it: in a new tab when an editor is configured,
@@ -212,7 +215,15 @@ pub(super) fn apply_motion(ctx: &egui::Context, reduce: bool) {
     });
 }
 
-/// Files whose changes trigger a live reload: the config, plus the active theme file.
-pub(super) fn watch_paths(theme_file: Option<PathBuf>) -> Vec<PathBuf> {
-    Config::path().into_iter().chain(theme_file).collect()
+/// Files whose changes trigger a live reload: the config, the active theme file and the
+/// favorites file.
+pub(super) fn watch_paths(
+    theme_file: Option<PathBuf>,
+    favorites: Option<&std::path::Path>,
+) -> Vec<PathBuf> {
+    Config::path()
+        .into_iter()
+        .chain(theme_file)
+        .chain(favorites.map(std::path::Path::to_path_buf))
+        .collect()
 }

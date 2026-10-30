@@ -1,8 +1,9 @@
-//! A tab's launch recipe: how it was started, so Reset (and later favorites and session
-//! restore) can start it again the same way.
+//! A tab's launch recipe: how it was started, so Reset (and later session restore) can
+//! start it again the same way.
 
 use std::path::{Path, PathBuf};
 
+use crate::favorites::FavId;
 use crate::terminal::profiles::Profile;
 
 /// How a terminal tab was launched. Pure data.
@@ -18,6 +19,9 @@ pub struct LaunchRecipe {
     pub command: Option<String>,
     /// Name the tab starts with.
     pub custom_title: Option<String>,
+    /// The favorite it was opened from. While that favorite exists, Reset starts from the
+    /// favorite's current recipe instead of this one.
+    pub favorite: Option<FavId>,
 }
 
 impl LaunchRecipe {
@@ -29,6 +33,7 @@ impl LaunchRecipe {
             dir,
             command: None,
             custom_title: None,
+            favorite: None,
         }
     }
 
@@ -98,6 +103,7 @@ mod tests {
         assert_eq!(r.dir, Some(PathBuf::from("/tmp")));
         assert_eq!(r.command, None);
         assert_eq!(r.custom_title, None);
+        assert_eq!(r.favorite, None);
         // Without a requested dir it falls back to home, never stays unresolved when home exists.
         let r = LaunchRecipe::new(profile(None), None);
         assert_eq!(r.dir, dirs::home_dir());

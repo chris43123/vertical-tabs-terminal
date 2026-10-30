@@ -432,8 +432,10 @@ pub fn markdown() -> String {
             default_chords(&defaults, *action)
         );
     }
-    for n in 1..=9 {
-        let action = Action::GotoTab(n);
+    for action in (1..=9)
+        .map(Action::GotoTab)
+        .chain((1..=9).map(Action::OpenFavorite))
+    {
         let _ = writeln!(
             out,
             "| `{}` | {} | {} |",
@@ -819,5 +821,7 @@ mod tests {
         assert!(md.contains("| `default_profile` | string | unset |"));
         assert!(md.contains("`new_tab`"));
         assert!(md.contains("`goto_tab_9`"));
+        assert!(md.contains("`open_favorite_9`"));
+        assert!(md.contains("`add_favorite`"));
     }
 }

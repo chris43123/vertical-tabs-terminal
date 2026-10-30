@@ -87,6 +87,8 @@ impl App {
                     self.ws.activate(id);
                 }
             }
+            Action::AddFavorite => self.start_add_favorite(None),
+            Action::OpenFavorite(n) => return self.open_favorite_at(n as usize),
             Action::LastTab => {
                 if let Some(&id) = self.ws.order.last() {
                     self.ws.activate(id);

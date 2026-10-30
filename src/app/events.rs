@@ -106,6 +106,7 @@ impl App {
         }
         for id in exited {
             if self.tabs.contains_key(&id) {
+                self.unlink_favorite(id, true);
                 self.close_tab(id);
             }
         }

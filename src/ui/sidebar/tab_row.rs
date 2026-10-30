@@ -148,6 +148,7 @@ impl App {
         };
         let (activity, bell) = (tab.activity, tab.bell);
         let is_term = tab.session().is_some();
+        let tab_dir = tab.dir().map(std::path::Path::to_path_buf);
 
         // Unread / bell badges.
         let badge = if bell {
@@ -306,6 +307,14 @@ impl App {
                         actions.push(Action::SetGroup(id, None));
                         ui.close();
                     }
+                    if is_term {
+                        let button = egui::Button::new("Add directory to favorites")
+                            .shortcut_text(kb.label(Shortcut::AddFavorite).unwrap_or_default());
+                        if ui.add(button).clicked() {
+                            actions.push(Action::AddFavorite(tab_dir.clone()));
+                            ui.close();
+                        }
+                    }
                     ui.separator();
                 }
                 let button =
@@ -360,6 +369,9 @@ impl App {
                     ui.label(RichText::new(process).font(mono).color(dim));
                 });
             }
+            if let Some(fav) = self.favorites.favorite_of(id) {
+                ui.label(RichText::new(format!("Opened from favorite {}", fav.name)).color(dim));
+            }
         })
     }
 
@@ -367,6 +379,8 @@ impl App {
     pub(super) fn drag_ghost(&self, ctx: &egui::Context) {
         let label = if let Some(drag) = egui::DragAndDrop::payload::<TabDrag>(ctx) {
             self.tabs.get(&drag.0).map(|t| t.title().to_string())
+        } else if let Some(drag) = egui::DragAndDrop::payload::<super::FavDrag>(ctx) {
+            self.favorites.list.get(&drag.0).map(|f| f.name.clone())
         } else {
             egui::DragAndDrop::payload::<crate::ui::FileDrag>(ctx).map(|f| {
                 f.0.file_name()

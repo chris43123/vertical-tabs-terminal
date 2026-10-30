@@ -32,7 +32,7 @@ impl App {
     }
 
     /// Fresh directory of tab `id` (re-queried for a shell).
-    fn focused_dir(&mut self, id: TabId) -> Option<PathBuf> {
+    pub(super) fn focused_dir(&mut self, id: TabId) -> Option<PathBuf> {
         let tab = self.tabs.get_mut(&id)?;
         if let Some(session) = tab.session() {
             let cwd = session.proc_info().cwd;
@@ -57,6 +57,7 @@ impl App {
         let mut tab = Tab::new(Content::Term(session), recipe.profile.clone());
         tab.custom_title = recipe.custom_title.clone();
         tab.pending_input = recipe.typed_input();
+        self.link_favorite(&recipe, id);
         tab.recipe = Some(recipe);
         self.tabs.insert(id, tab);
         self.ws.add(id, focused);
@@ -130,6 +131,7 @@ impl App {
         let (Some(recipe), Some(size)) = (tab.recipe.clone(), tab.session().map(|s| s.size)) else {
             return;
         };
+        let recipe = self.current_recipe(recipe);
         // Start the new shell first: if that fails (reported in the banner), the tab and its
         // old session stay as they were.
         let Some(session) = self.start_session(id, &recipe, size) else {
@@ -151,6 +153,8 @@ impl App {
         tab.bell_flash = None;
         tab.cwd = recipe.dir.clone();
         tab.pending_input = recipe.typed_input();
+        tab.profile = recipe.profile.clone();
+        tab.recipe = Some(recipe);
         if self.reset_prompt.as_ref().is_some_and(|p| p.tab == id) {
             self.reset_prompt = None;
         }
@@ -179,6 +183,7 @@ impl App {
         }
         self.ws.close(id);
         self.tabs.remove(&id);
+        self.unlink_favorite(id, false);
         if self.reset_prompt.as_ref().is_some_and(|p| p.tab == id) {
             self.reset_prompt = None;
         }

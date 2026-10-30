@@ -121,6 +121,7 @@ impl App {
             || self.renaming.is_some()
             || self.help.is_some()
             || self.reset_prompt.is_some()
+            || self.favorite_dialog.is_some()
     }
 
     pub(super) fn focused_session(&self) -> Option<&Session> {

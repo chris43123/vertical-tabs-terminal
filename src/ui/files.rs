@@ -33,6 +33,7 @@ enum Action {
     InsertPath(PathBuf),
     CopyPath(PathBuf),
     OpenExternal(PathBuf),
+    AddFavorite(PathBuf),
     ToggleHidden,
     CollapseAll,
     Close,
@@ -447,6 +448,11 @@ impl App {
                     item(ui, "cd into folder", Action::Cd(path.clone()));
                     item(ui, "New tab here", Action::NewTabIn(path.clone()));
                     item(ui, "Browse here", Action::Browse(path.clone()));
+                    item(
+                        ui,
+                        "Add directory to favorites",
+                        Action::AddFavorite(path.clone()),
+                    );
                 } else {
                     item(ui, "Preview", Action::Preview(path.clone()));
                 }
@@ -492,6 +498,7 @@ impl App {
                     crate::diag::warn(err);
                 }
             }
+            Action::AddFavorite(p) => self.start_add_favorite(Some(p)),
             Action::ToggleHidden => self.files.tree.show_hidden = !self.files.tree.show_hidden,
             Action::CollapseAll => self.files.tree.collapse_all(),
             Action::Close if self.side.hidden => self.side.zen_files = false,

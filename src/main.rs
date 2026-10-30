@@ -9,6 +9,8 @@
 //! - [`workspace`]: pure tab/split/folder bookkeeping, with no rendering or sessions.
 //! - [`files`] and [`preview`]: the files panel's tree, git status and search, and file
 //!   previews with syntax highlighting.
+//! - [`favorites`]: the favorites file (pinned directories with a profile and command) and
+//!   the `vtt favorites` CLI.
 //! - [`render`]: glyph atlas and per-pane meshes for terminal grids.
 //! - [`app`]: the application state and its behavior; it owns everything above.
 //! - [`ui`]: the egui chrome, drawn from `App` each frame.
@@ -20,6 +22,7 @@
 mod app;
 mod config;
 mod diag;
+mod favorites;
 mod files;
 mod fuzzy;
 mod platform;
@@ -33,6 +36,9 @@ mod workspace;
 fn main() -> eframe::Result {
     let args: Vec<String> = std::env::args().skip(1).collect();
     if let Some(code) = config::reference::run_cli(&args) {
+        std::process::exit(code);
+    }
+    if let Some(code) = favorites::cli::run_cli(&args) {
         std::process::exit(code);
     }
     let config = config::Config::load();
