@@ -9,3 +9,4 @@ One feature per line; a sentence or two is plenty, the spec-writer fills in the 
 - [ ] Show a tab's exit status in its hover card when the process has exited (code, or the signal that killed it).
 - [ ] "Copy working directory" action in the command palette for the focused tab (unbound by default).
 - [ ] Files panel: show untracked files in a distinct color from modified ones, using `git status` output vtt already reads.
+- [ ] UI snapshot tests with `egui_kittest`: render the main chrome (sidebar expanded and collapsed, favorites section, palette, a preview, a dialog) in light and dark themes to PNGs under the test tree, so the design reviewer can read real screenshots instead of inferring the look from code. Add the reviewer instruction to look at them.
