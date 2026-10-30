@@ -131,7 +131,9 @@ const STAGES = [
   ["spec", "Spec"], ["build", "Build"], ["review", "Review"],
   ["approve", "Approver"], ["needs-human", "Needs human"], ["merged", "Merged"],
 ];
-const LANES = ["security", "ux", "ui", "code"];
+const LANES = ["security", "design", "code"];
+// Rounds from before the design lane merged UX and UI keep their own lanes.
+const lanesOf = (r) => (r && ("ux" in r || "ui" in r) ? ["security", "ux", "ui", "code"] : LANES);
 const DEMO = new URLSearchParams(location.search).has("demo");
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
@@ -193,7 +195,7 @@ function card(j) {
     <div class="title">${esc(j.title || j.id)}</div>
     <div class="branch mono">${esc(j.branch || "")}</div>
     ${rounds.length ? `<div class="rounds">${rounds.map((r, i) => `<div class="round ${i < rounds.length - 1 ? "old" : ""}">
-      <span class="n mono">R${i + 1}</span>${LANES.map((l) => chip(l, r[l])).join("")}</div>`).join("")}</div>` : ""}
+      <span class="n mono">R${i + 1}</span>${lanesOf(r).map((l) => chip(l, r[l])).join("")}</div>`).join("")}</div>` : ""}
     ${j.note ? `<div class="note">${esc(j.note)}</div>` : ""}
   </button>`;
 }
@@ -221,7 +223,7 @@ function filesFor(j) {
   const n = (j.history || []).length + (j.reviews ? 1 : 0);
   for (let r = 1; r <= n; r++) {
     const verdicts = r <= (j.history || []).length ? j.history[r - 1] : j.reviews;
-    LANES.forEach((l) => f.push([`round-${r}/review-${l}.md`, `R${r} ${l}`, verdicts?.[l]]));
+    lanesOf(verdicts).forEach((l) => f.push([`round-${r}/review-${l}.md`, `R${r} ${l}`, verdicts?.[l]]));
   }
   f.push(["human.md", "human"], ["decision.md", "decision", j.decision]);
   return f;
@@ -301,17 +303,17 @@ function md(src) {
 // ---- Demo data (dashboard.html?demo) ----------------------------------------
 function demoBoard() {
   const t = Math.floor(Date.now() / 4000) % 4; // a review round filling in, on a loop
-  const live = ["pending", "pending", "pending", "pending"].map((v, i) => (i < t ? ["PASS", "PASS", "PASS", "PASS"][i] : v));
+  const live = LANES.map((_, i) => (i < t ? "PASS" : "pending"));
   return { jobs: [
     { id: "001-exit-status", title: "Show exit status in tab hover", branch: "factory/001-exit-status", stage: "merged",
-      round: 2, history: [{ security: "PASS", ux: "CHANGES", ui: "PASS", code: "PASS" }],
-      reviews: { security: "PASS", ux: "PASS", ui: "PASS", code: "PASS" }, decision: "APPROVE", note: "merged into main" },
+      round: 2, history: [{ security: "PASS", design: "CHANGES", code: "PASS" }],
+      reviews: { security: "PASS", design: "PASS", code: "PASS" }, decision: "APPROVE", note: "merged into main" },
     { id: "002-copy-cwd", title: "Copy working directory action", branch: "factory/002-copy-cwd", stage: "needs-human",
-      round: 1, reviews: { security: "PASS", ux: "PASS", ui: "PASS", code: "PASS" }, decision: "ESCALATE",
+      round: 1, reviews: { security: "PASS", design: "PASS", code: "PASS" }, decision: "ESCALATE",
       note: "Adds a macOS default (⌘⇧C); a human should confirm the binding." },
     { id: "003-untracked-color", title: "Color untracked files", branch: "factory/003-untracked-color", stage: "review",
-      round: 2, history: [{ security: "PASS", ux: "PASS", ui: "CHANGES", code: "CHANGES" }],
-      reviews: Object.fromEntries(LANES.map((l, i) => [l, live[i]])), note: "round 2: waiting for all 4 reviews" },
+      round: 2, history: [{ security: "PASS", design: "CHANGES", code: "CHANGES" }],
+      reviews: Object.fromEntries(LANES.map((l, i) => [l, live[i]])), note: "round 2: waiting for all 3 reviews" },
     { id: "004-folder-colors", title: "More folder colors", branch: "factory/004-folder-colors", stage: "spec", note: "spec-writer is drafting" },
   ] };
 }

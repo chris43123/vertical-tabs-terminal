@@ -29,17 +29,18 @@ Arguments: `$ARGUMENTS`
                    │     builder      │◄────────────────────┐
                    │       opus       │                     │
                    └─────────┬────────┘                     │
-        ┌─────────────┬──────┴──────┬─────────────┐         │
-        ▼             ▼             ▼             ▼         │
-  ┌───────────┐ ┌───────────┐ ┌───────────┐ ┌───────────┐   │
-  │ security* │ │     ux    │ │ ui design │ │    code   │   │
-  │   sonnet  │ │   sonnet  │ │   sonnet  │ │   sonnet  │   │
-  └─────┬─────┘ └─────┬─────┘ └─────┬─────┘ └─────┬─────┘   │
-        └─────────────┴──────┬──────┴─────────────┘         │
+          ┌──────────────────┼──────────────────┐           │
+          ▼                  ▼                  ▼           │
+    ┌───────────┐      ┌───────────┐      ┌───────────┐     │
+    │ security* │      │   design  │      │    code   │     │
+    │   sonnet  │      │ (ux + ui) │      │   sonnet  │     │
+    │           │      │   sonnet  │      │           │     │
+    └─────┬─────┘      └─────┬─────┘      └─────┬─────┘     │
+          └──────────────────┼──────────────────┘           │
                              ▼                              │
                    ┌──────────────────┐   any CHANGES:      │
                    │   WAIT FOR ALL   ├─────────────────────┘
-                   │   4 reviews in   │   resume builder
+                   │   3 reviews in   │   resume builder
                    └─────────┬────────┘   (max 2 rounds)
                              ▼ all PASS
                    ┌──────────────────┐
@@ -55,8 +56,9 @@ Arguments: `$ARGUMENTS`
 
 - `MAX_ROUNDS = 2` review rounds per job (and 2 more after each `rework`). Still
   CHANGES after the last round → approver anyway, which escalates.
-- Reviewers: `security-reviewer`, `ux-reviewer`, `ui-reviewer`, `code-reviewer`,
-  writing `review-security.md`, `review-ux.md`, `review-ui.md`, `review-code.md`.
+- Reviewers: `security-reviewer`, `design-reviewer` (UX and UI in one lane),
+  `code-reviewer`, writing `review-security.md`, `review-design.md`, `review-code.md`.
+  Jobs started before the merge keep `ux`/`ui` in their board history; that's fine.
 - \* **Security is gated** (vtt is a personal desktop app; the lane is the costliest).
   Spawn `security-reviewer` in a round only if both hold:
   1. The diff touches its surface: `unsafe`/FFI, `Cargo.toml`/`Cargo.lock`, process
@@ -96,8 +98,8 @@ step below so the dashboard moves.
 { "jobs": [ {
   "id": "004-tab-search", "title": "Search tabs by cwd", "branch": "factory/004-tab-search",
   "stage": "review", "round": 2,
-  "reviews": { "security": "pending", "ux": "PASS", "ui": "pending", "code": "CHANGES" },
-  "history": [ { "security": "CHANGES", "ux": "PASS", "ui": "PASS", "code": "PASS" } ],
+  "reviews": { "security": "pending", "design": "PASS", "code": "CHANGES" },
+  "history": [ { "security": "CHANGES", "design": "PASS", "code": "PASS" } ],
   "decision": null, "note": "", "updated": "2026-10-19T14:02:00Z"
 } ] }
 ```
@@ -120,14 +122,14 @@ step below so the dashboard moves.
 5. Run review rounds (below), then the approver (below).
 
 ### Review round N
-1. `mkdir factory/jobs/<id>/round-N`. Board: stage `review`, `round: N`, all four
+1. `mkdir factory/jobs/<id>/round-N`. Board: stage `review`, `round: N`, all three
    reviews `pending`.
 2. Spawn the reviewers **in one message** (they run in parallel; security only if
    gated in, see above), each with:
    "Job folder: factory/jobs/<id>/. Worktree: .worktrees/<id>. Repo root: <path>.
    Round folder: factory/jobs/<id>/round-N/."
 3. **WAIT FOR ALL.** As each reviewer finishes, read the first line of its file and
-   set its chip on the board. The round is done only when all four `review-*.md`
+   set its chip on the board. The round is done only when all three `review-*.md`
    files exist in the round folder (check with `ls`). Never resume the builder
    mid-round. If a reviewer finished without writing its file, or the first line
    isn't `VERDICT: PASS`/`VERDICT: CHANGES` (or your own `VERDICT: SKIPPED`), re-spawn that reviewer once; if it fails

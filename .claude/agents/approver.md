@@ -13,7 +13,7 @@ Read `factory/conventions.md`, `<job>/feature.md`, `spec.md`, `build.md`, every
 Do not edit anything except your file.
 
 APPROVE only if all hold:
-- The latest round's four reviews are all PASS (`SKIPPED` security counts as PASS:
+- The latest round's three reviews (security, design, code) are all PASS (`SKIPPED` security counts as PASS:
   the orchestrator skips it when the diff has no security surface or it already
   passed), and no blocking point was declined
   without a convincing reason.
