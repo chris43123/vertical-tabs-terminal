@@ -25,6 +25,17 @@ impl App {
         self.spawn_tab(LaunchRecipe::new(profile, cwd), split)
     }
 
+    /// Open a default tab in the directory of the tab closed last, once none are left.
+    pub(super) fn open_after_last_closed(&mut self) -> Option<TabId> {
+        let profile = self.profiles.first()?.clone();
+        let dir = self
+            .closed
+            .last()
+            .and_then(|c| c.recipe.as_ref())
+            .and_then(|r| r.dir.clone());
+        self.spawn_tab(LaunchRecipe::new(profile, dir), None)
+    }
+
     pub fn new_tab_in(&mut self, dir: PathBuf) {
         if let Some(profile) = self.profiles.first().cloned() {
             self.spawn_tab(LaunchRecipe::new(profile, Some(dir)), None);

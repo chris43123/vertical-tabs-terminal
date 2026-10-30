@@ -353,7 +353,8 @@ impl eframe::App for App {
         self.handle_keyboard();
         self.poll();
 
-        if self.tabs.is_empty() {
+        // Closing the last tab leaves a fresh shell rather than quitting; the window quits.
+        if self.tabs.is_empty() && self.open_after_last_closed().is_none() {
             ctx.send_viewport_cmd(egui::ViewportCommand::Close);
             return;
         }
