@@ -369,9 +369,6 @@ impl App {
                     ui.label(RichText::new(process).font(mono).color(dim));
                 });
             }
-            if let Some(fav) = self.favorites.favorite_of(id) {
-                ui.label(RichText::new(format!("Opened from favorite {}", fav.name)).color(dim));
-            }
         })
     }
 

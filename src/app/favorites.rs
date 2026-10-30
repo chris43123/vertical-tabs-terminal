@@ -74,12 +74,6 @@ impl FavoritesState {
         self.links.get(id).copied()
     }
 
-    /// The favorite a tab was opened from, if it's still linked.
-    pub fn favorite_of(&self, tab: TabId) -> Option<&Favorite> {
-        let (id, _) = self.links.iter().find(|&(_, &t)| t == tab)?;
-        self.list.get(id)
-    }
-
     /// Take a freshly read list: links and exited marks of ids that survive stay, and every
     /// path is checked again.
     fn replace(&mut self, list: Favorites) {
@@ -142,6 +136,45 @@ impl FavoritesState {
     }
 }
 
+/// A favorite with an open tab, as the sidebar shows it: the favorite's row is that tab,
+/// and the other tabs of its split view are listed under it instead of among the tabs.
+#[derive(Clone, Debug, PartialEq)]
+pub struct FavoriteTabs {
+    pub id: FavId,
+    pub tab: TabId,
+    /// The rest of its split view, in sidebar order.
+    pub siblings: Vec<TabId>,
+}
+
+/// Group the open favorites' tabs. `link` gives a favorite's live tab, `view_of` a tab's
+/// view. A tab belongs to at most one favorite (the first in the list whose view holds it),
+/// and another favorite's own tab is never someone's sibling.
+fn group_favorite_tabs(
+    favorites: &[Favorite],
+    link: impl Fn(&str) -> Option<TabId>,
+    order: &[TabId],
+    view_of: impl Fn(TabId) -> Option<usize>,
+) -> Vec<FavoriteTabs> {
+    let linked: Vec<(FavId, TabId)> = favorites
+        .iter()
+        .filter_map(|f| Some((f.id.clone(), link(&f.id)?)))
+        .collect();
+    let mut claimed: HashSet<TabId> = linked.iter().map(|&(_, t)| t).collect();
+    linked
+        .into_iter()
+        .map(|(id, tab)| {
+            let view = view_of(tab);
+            let siblings = order
+                .iter()
+                .copied()
+                .filter(|&t| view.is_some() && view_of(t) == view)
+                .filter(|&t| claimed.insert(t))
+                .collect();
+            FavoriteTabs { id, tab, siblings }
+        })
+        .collect()
+}
+
 /// How a broken favorites file is reported (see [`Store::load`]).
 const INVALID_FILE: &str = "invalid favorites file";
 
@@ -165,6 +198,7 @@ impl App {
                 warn_problems(&list);
                 self.favorites.replace(list);
                 self.warn_unknown_profiles();
+                self.sync_favorite_order();
             }
             Err(err) => crate::diag::warn(format!("{err} (keeping the previous favorites)")),
         }
@@ -232,6 +266,36 @@ impl App {
         }
     }
 
+    /// The open favorites with their tabs (see [`FavoriteTabs`]).
+    pub fn favorite_tabs(&self) -> Vec<FavoriteTabs> {
+        group_favorite_tabs(
+            &self.favorites.list.list,
+            |id| {
+                self.favorites
+                    .linked_tab(id)
+                    .filter(|t| self.tabs.contains_key(t))
+            },
+            &self.ws.order,
+            |t| self.ws.view_of(t),
+        )
+    }
+
+    /// Keep the favorites' tabs (and their splits) at the front of the tab order, in the
+    /// favorites' order, so next/previous tab and "go to tab N" follow what the sidebar shows.
+    pub(super) fn sync_favorite_order(&mut self) {
+        for g in self.favorite_tabs().into_iter().rev() {
+            self.ws.reorder(g.tab, 0);
+        }
+    }
+
+    /// Tabs the sidebar shows under a favorite rather than in the tab list.
+    pub fn tabs_under_favorites(&self) -> HashSet<TabId> {
+        self.favorite_tabs()
+            .into_iter()
+            .flat_map(|g| std::iter::once(g.tab).chain(g.siblings))
+            .collect()
+    }
+
     /// Tab `tab` is going away; `exited` when its shell ended on its own.
     pub(super) fn unlink_favorite(&mut self, tab: TabId, exited: bool) {
         self.favorites.unlink(tab, exited);
@@ -263,9 +327,14 @@ impl App {
             );
             return;
         }
-        if let Some(recipe) = self.favorite_recipe(&fav) {
-            self.spawn_tab(recipe, split);
+        if let Some(recipe) = self.favorite_recipe(&fav)
+            && let Some(tab) = self.spawn_tab(recipe, split)
+            && split.is_none()
+        {
+            // Its row is the favorite's, above the tabs: it doesn't join the focused folder.
+            self.ws.set_group(tab, None);
         }
+        self.sync_favorite_order();
     }
 
     /// `open_favorite_N`: the Nth favorite (1-based).
@@ -334,8 +403,9 @@ impl App {
             let pos = if to > i { to } else { to + 1 };
             f.move_to(i, pos.clamp(1, f.list.len()))
         });
-        if let Err(err) = result {
-            self.notify(err, true);
+        match result {
+            Ok(()) => self.sync_favorite_order(),
+            Err(err) => self.notify(err, true),
         }
     }
 
@@ -414,7 +484,6 @@ mod tests {
         // Same name, separate links.
         assert_eq!(s.linked_tab(&a), Some(1));
         assert_eq!(s.linked_tab(&b), Some(2));
-        assert_eq!(s.favorite_of(2).map(|f| f.id.as_str()), Some(b.as_str()));
         s.unlink(1, true);
         assert_eq!(s.status(&a), FavStatus::Exited);
         s.unlink(2, false);
@@ -455,6 +524,55 @@ mod tests {
             icon: "$".into(),
             color: None,
         }
+    }
+
+    #[test]
+    fn favorite_rows_take_their_tab_and_its_split() {
+        let fav = |id: &str| Favorite {
+            id: id.into(),
+            name: "same".into(),
+            path: "/x".into(),
+            profile: None,
+            command: None,
+        };
+        let favs = [fav("f1"), fav("f2"), fav("f3")];
+        // Tabs 1..=6. f1 is tab 2, split with tabs 3 and 5 (view 0). f2 is tab 4, alone
+        // (view 1). f3 has no tab. Tabs 1 and 6 are plain tabs in views 2 and 3.
+        let link = |id: &str| match id {
+            "f1" => Some(2),
+            "f2" => Some(4),
+            _ => None,
+        };
+        let view_of = |t: TabId| {
+            Some(match t {
+                2 | 3 | 5 => 0,
+                4 => 1,
+                1 => 2,
+                _ => 3,
+            })
+        };
+        let groups = group_favorite_tabs(&favs, link, &[1, 2, 3, 4, 5, 6], view_of);
+        assert_eq!(
+            groups,
+            [
+                FavoriteTabs {
+                    id: "f1".into(),
+                    tab: 2,
+                    siblings: vec![3, 5]
+                },
+                FavoriteTabs {
+                    id: "f2".into(),
+                    tab: 4,
+                    siblings: vec![]
+                },
+            ]
+        );
+        // Two favorites' tabs in one split: neither lists the other, and a plain tab in
+        // that split goes to the first one only.
+        let view_of = |t: TabId| Some(if t == 6 { 1 } else { 0 });
+        let groups = group_favorite_tabs(&favs, link, &[2, 3, 4, 6], view_of);
+        assert_eq!(groups[0].siblings, vec![3]);
+        assert_eq!(groups[1].siblings, Vec::<TabId>::new());
     }
 
     #[test]

@@ -386,13 +386,13 @@ mod tests {
     }
 
     #[test]
-    fn add_refuses_duplicates_bad_profiles_and_missing_dirs() {
+    fn add_allows_one_dir_twice_but_refuses_bad_profiles_and_missing_dirs() {
         let fx = Fixture::new("cli-dup");
         assert_eq!(fx.run(&["add", "api"]).code, 0);
+        let r = fx.run(&["add", "api", "--name", "k9s", "--command", "k9s"]);
+        assert_eq!(r.code, 0, "{}", r.err);
+        assert!(r.out.contains("added f2"), "{}", r.out);
         let before = fx.file();
-        let r = fx.run(&["add", "api", "--name", "again"]);
-        assert_eq!(r.code, 1);
-        assert!(r.err.contains("already favorite 1"), "{}", r.err);
         let r = fx.run(&["add", "web", "--profile", "nosuch"]);
         assert_eq!(r.code, 1);
         assert!(r.err.contains("zsh, fish"), "{}", r.err);
@@ -449,7 +449,7 @@ mod tests {
         assert_eq!(fx.run(&["unset", "1", "command"]).code, 0);
         assert_eq!(fx.json()[0]["command"], serde_json::Value::Null);
         assert_eq!(fx.run(&["unset", "1", "name"]).code, 1);
-        assert_eq!(fx.run(&["set", "1", "path", "web"]).code, 1);
+        assert_eq!(fx.run(&["set", "1", "path", "nowhere"]).code, 1);
 
         assert_eq!(fx.run(&["move", "scratch", "1"]).code, 0);
         let ids: Vec<String> = fx

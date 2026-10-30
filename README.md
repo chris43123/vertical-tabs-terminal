@@ -18,7 +18,7 @@ Inspired by Warp, minus the weight: Warp's good ideas (a file tree that follows 
 
 ## Features
 
-- **Favorites.** Pin the directories you return to above the tabs, each with an optional profile and command (`claude`, `k9s`, `npm run dev`). One click opens it, or focuses its tab if it's already open. Scripts and AI agents manage the same list with `vtt favorites` (see [Favorites](#favorites)).
+- **Favorites.** Pin the directories you return to above the tabs, each with an optional profile and command (`claude`, `k9s`, `npm run dev`). One click opens it, and from then on the favorite's row *is* that tab. Scripts and AI agents manage the same list with `vtt favorites` (see [Favorites](#favorites)).
 - **Vertical tabs.** The sidebar can be collapsed to an icon strip, or hidden entirely (zen mode, `Ctrl+B`) and peeked by hovering the left window edge (`Ctrl+\` in zen mode switches the peek between tabs and files).
 - **Folders.** Group tabs into named, colored folders that collapse, Zen-style (see [Folders](#folders)).
 - **Files panel.** A file tree of the focused shell's directory sits between the tabs and the terminals, and follows you as you `cd` (see [Files and previews](#files-and-previews)).
@@ -143,13 +143,16 @@ Folders group tabs in the sidebar, like folders in Zen Browser.
 
 Favorites are directories pinned above the tabs in the sidebar. Each has a name (emoji welcome), a path, and optionally a profile and a command that is typed into the shell when it opens, so aliases and your `PATH` work and quitting the command leaves you at a prompt in that directory.
 
-- **Click** a favorite to open it in a new tab. If its tab is already open, the click focuses it. Two favorites with the same name stay separate: each remembers the tab it opened.
+- **Click** a favorite to open its tab. The tab doesn't get a second row among the other tabs: the favorite's row is the tab. It highlights when focused, shows the unread and bell dots, and closes with × (on hover) or a middle click; the favorite stays. A click while it's open focuses it.
+- **Splits stay with it.** Split a favorite's tab ("Split right with new tab" in its menu, or drag a tab onto its pane) and the other panes are listed under the favorite, not among the tabs. Next/previous tab and "go to tab N" count the favorites' tabs first, in the sidebar's order.
+- The same directory can be a favorite more than once (a plain shell and `k9s` in one place, say). Favorites are told apart by id, so each opens and focuses its own tab, even with the same name or path.
 - The **dot** says green when its tab is open, a ring when it has none, and red when its shell exited on its own. Click it again to start a new one.
-- **↻** (on hover; ▶ when it has no tab, which opens one) resets its tab: everything in it is killed and it starts again from the favorite as it is *now*, so a command you changed since takes effect. Reset tab on a favorite's tab does the same.
-- **Drag** to reorder. **Right-click** for Open, Open in split, Reveal in files panel, Edit… and Remove. (Open in split on a favorite that is already open focuses its tab instead.)
+- **↻** (on hover) resets its tab: everything in it is killed and it starts again from the favorite as it is *now*, so a command you changed since takes effect. Reset tab on a favorite's tab does the same. With no tab open, the hover button is ▶ and opens one.
+- **Drag** to reorder. **Right-click** for Reset, Split right, Minimise from split, Reveal in files panel, Rename / edit…, Close tab and Remove favorite (with no tab open: Open, Open in split, Reveal, Rename / edit… and Remove). Double-click opens the edit dialog.
+- The **Favorites** header has a **+** on hover to add one. Drag the line under the section to make it taller or shorter (double-click it to go back to the default); the height is remembered. Past that height the section scrolls, so the tabs always keep room.
 - A favorite whose directory is gone is dimmed, and clicking it only says so. vtt checks when it loads the list, when the list changes and when you click; it never polls.
 - With the sidebar collapsed, a favorite shows the first letter or emoji of its name, plus the dot.
-- **Add one** with "Add directory to favorites" in a tab's right-click menu (its current directory), in a folder's right-click menu in the files panel, or from the palette. The dialog asks for the name, path, profile and command. It won't save a path that doesn't exist or is already a favorite, or a command with more than one line.
+- **Add one** with "Add directory to favorites" in a tab's right-click menu (its current directory), in a folder's right-click menu in the files panel, or from the palette. The dialog asks for the name, path, profile and command. It won't save a path that doesn't exist, or a command with more than one line.
 
 ### From the command line
 
@@ -176,7 +179,7 @@ The list lives in its own file, per machine, not in the config:
 - macOS: `~/Library/Application Support/vtt/favorites.toml` (next to `config.toml`, but still a separate file)
 - Windows: `%APPDATA%\vtt\favorites.toml`
 
-It's plain TOML (`[[favorite]]` tables), so you can edit it by hand too. vtt and the CLI write it atomically and re-read it before every change, so neither overwrites the other's edits. A favorite's command is typed into a shell, so anything that can write this file can run commands as you, just like your shell's rc files.
+It's plain TOML (`[[favorite]]` tables), so you can edit it by hand too. vtt and the CLI write it atomically and re-read it before every change, so neither overwrites the other's edits. A favorite's command is typed into a shell, so anything that can write this file can run commands as you, just like your shell's rc files. vtt only types one line: a hand-edited command with a line break or another control character (an escape sequence, say) is ignored with a warning, and **dropped from the file the next time vtt or `vtt favorites` writes it**. Control characters in a hand-edited name are replaced the same way.
 
 ## Installing
 

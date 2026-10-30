@@ -1,24 +1,33 @@
-//! The pinned favorites above the tabs: one row per favorite with a status dot, its name
-//! (dimmed when the directory is missing), a ↻ reset on hover, a context menu and drag
-//! reorder. Collapsed, a row is the name's first grapheme plus the dot.
+//! The pinned favorites above the tabs, under a "Favorites" header (with a + on hover). A
+//! favorite's row *is* its tab once open: it shows the focused state, unread and bell
+//! markers and a close button, and the other tabs of its split view are listed under it
+//! rather than among the tabs. Each row has a status dot (open / no tab / exited), its name
+//! (dimmed when the directory is missing), ↻ reset or ▶ open on hover, a context menu and
+//! drag reorder. A handle under the section resizes it. Collapsed, a row is the name's first
+//! grapheme plus the dot.
 
 use eframe::egui::text::{LayoutJob, TextWrapping};
 use eframe::egui::{
-    self, Align2, Color32, CornerRadius, FontId, Id, Pos2, Rect, RichText, Sense, Stroke, Ui, pos2,
-    vec2,
+    self, Align2, Color32, CornerRadius, FontId, Id, Pos2, Rect, RichText, Sense, Stroke,
+    StrokeKind, Ui, pos2, vec2,
 };
 
 use crate::app::{App, FavStatus};
 use crate::config::keybinds::Action as Shortcut;
 use crate::favorites::FavId;
 use crate::theme::mix;
-use crate::workspace::Edge;
+use crate::workspace::{Edge, TabId};
 
 use super::{Action, ROW_HEIGHT};
 
 const FAV_HEIGHT: f32 = 26.0;
-/// Most of the sidebar's remaining height the favorites take before they scroll.
-const MAX_SHARE: f32 = 0.4;
+const HEADER_HEIGHT: f32 = 20.0;
+const HANDLE_HEIGHT: f32 = 8.0;
+/// Share of the sidebar's remaining height the favorites take before they scroll, until
+/// the user drags the handle.
+const DEFAULT_SHARE: f32 = 0.4;
+/// The most a dragged height may take, so the tab list never disappears.
+const MAX_SHARE: f32 = 0.85;
 /// Contrast kept by a missing favorite's dimmed name against the sidebar.
 const DIM_CONTRAST: f32 = 3.0;
 
@@ -27,10 +36,23 @@ const DIM_CONTRAST: f32 = 3.0;
 pub struct FavDrag(pub FavId);
 
 impl App {
-    /// Draw the favorites section, if there are any (followed by a separator). It scrolls on
-    /// its own past a share of the sidebar's height, so the tab list always keeps room.
-    pub(super) fn favorites_section(&self, ui: &mut Ui, expanded: bool, actions: &mut Vec<Action>) {
-        if self.favorites.list.list.is_empty() {
+    /// Draw the favorites section: the header, the rows (scrolling past their height) and
+    /// the resize handle. Collapsed and empty, nothing.
+    pub(super) fn favorites_section(
+        &mut self,
+        ui: &mut Ui,
+        expanded: bool,
+        actions: &mut Vec<Action>,
+    ) {
+        let empty = self.favorites.list.list.is_empty();
+        if !expanded && empty {
+            return;
+        }
+        if expanded {
+            self.favorites_header(ui, actions);
+        }
+        if empty {
+            ui.separator();
             return;
         }
         let ids: Vec<FavId> = self
@@ -40,26 +62,45 @@ impl App {
             .iter()
             .map(|f| f.id.clone())
             .collect();
+        let groups = self.favorite_tabs();
+        let available = ui.available_height();
+        let row = if expanded { FAV_HEIGHT } else { ROW_HEIGHT };
+        let max_height = self
+            .favorites_height
+            .unwrap_or(available * DEFAULT_SHARE)
+            .min(available * MAX_SHARE)
+            .max(row);
+
         let mut rects = Vec::with_capacity(ids.len());
+        let mut content = Rect::NOTHING;
         let visible = egui::ScrollArea::vertical()
             .id_salt(("favorites", expanded))
-            .max_height((ui.available_height() * MAX_SHARE).max(FAV_HEIGHT))
+            .max_height(max_height)
             .auto_shrink([false, true])
             .show(ui, |ui| {
                 for (i, id) in ids.iter().enumerate() {
-                    rects.push(self.favorite_row(ui, id, i, expanded, actions));
+                    let group = groups.iter().find(|g| &g.id == id);
+                    let rect =
+                        self.favorite_row(ui, id, i, group.map(|g| g.tab), expanded, actions);
+                    rects.push(rect);
+                    content = content.union(rect);
+                    // Its split's other tabs, under it (bracketed like any split).
+                    if let Some(g) = group.filter(|g| !g.siblings.is_empty()) {
+                        let order: Vec<TabId> = std::iter::once(g.tab)
+                            .chain(g.siblings.iter().copied())
+                            .collect();
+                        for (j, &t) in order.iter().enumerate().skip(1) {
+                            content =
+                                content.union(self.tab_row(ui, t, j, &order, expanded, actions));
+                        }
+                    }
                 }
             })
             .inner_rect;
 
-        // Reorder: an insertion line between rows while a favorite is dragged over them.
+        // Reorder: an insertion line between favorites while one is dragged over them.
         // Row rects are where the rows are, scrolled out of view or not.
         let dragged = egui::DragAndDrop::payload::<FavDrag>(ui.ctx()).map(|p| p.0.clone());
-        let section = rects
-            .iter()
-            .copied()
-            .reduce(|a, b| a.union(b))
-            .unwrap_or(Rect::NOTHING);
         if let (Some(dragged), Some(pos)) = (dragged, ui.ctx().input(|i| i.pointer.hover_pos()))
             && visible.expand2(vec2(0.0, 6.0)).contains(pos)
         {
@@ -70,9 +111,9 @@ impl App {
             let y = rects
                 .get(idx)
                 .map(|r| r.top() - 1.0)
-                .unwrap_or_else(|| section.bottom() + 1.0);
+                .unwrap_or_else(|| content.bottom() + 1.0);
             ui.painter_at(visible.expand(2.0)).hline(
-                section.x_range(),
+                content.x_range(),
                 y,
                 Stroke::new(2.0, self.chrome.accent),
             );
@@ -80,8 +121,76 @@ impl App {
                 actions.push(Action::MoveFavorite(dragged, idx));
             }
         }
-        ui.add_space(2.0);
-        ui.separator();
+        self.favorites_handle(ui, visible.height(), content.height(), row);
+    }
+
+    /// "Favorites", with a + that shows on hover and opens the add dialog.
+    fn favorites_header(&self, ui: &mut Ui, actions: &mut Vec<Action>) {
+        let (rect, resp) =
+            ui.allocate_exact_size(vec2(ui.available_width(), HEADER_HEIGHT), Sense::hover());
+        let c = &self.chrome;
+        let dim = mix(c.fg, c.sidebar, 0.4);
+        ui.painter().text(
+            pos2(rect.left() + 6.0, rect.center().y),
+            Align2::LEFT_CENTER,
+            "Favorites",
+            FontId::proportional(11.5),
+            dim,
+        );
+        let plus_rect =
+            Rect::from_center_size(pos2(rect.right() - 13.0, rect.center().y), vec2(18.0, 18.0));
+        if resp.hovered() || ui.rect_contains_pointer(plus_rect) {
+            let tip = format!(
+                "Add directory to favorites{}",
+                self.keybinds.hint(Shortcut::AddFavorite)
+            );
+            let plus = ui
+                .interact(plus_rect, Id::new("add_favorite"), Sense::click())
+                .on_hover_text(tip);
+            if plus.hovered() {
+                ui.painter()
+                    .rect_filled(plus_rect, CornerRadius::same(4), c.raised_sidebar(0.28));
+            }
+            ui.painter().text(
+                plus_rect.center(),
+                Align2::CENTER_CENTER,
+                "+",
+                FontId::proportional(15.0),
+                ui.visuals().text_color(),
+            );
+            if plus.clicked() {
+                actions.push(Action::AddFavorite(None));
+            }
+        }
+    }
+
+    /// The line under the favorites: drag it to make the section taller or shorter (kept
+    /// for the session and across restarts).
+    fn favorites_handle(&mut self, ui: &mut Ui, shown: f32, content: f32, row: f32) {
+        let (rect, resp) =
+            ui.allocate_exact_size(vec2(ui.available_width(), HANDLE_HEIGHT), Sense::drag());
+        let resp = resp.on_hover_cursor(egui::CursorIcon::ResizeVertical);
+        let active = resp.hovered() || resp.dragged();
+        let color = if active {
+            self.chrome.accent
+        } else {
+            ui.visuals().widgets.noninteractive.bg_stroke.color
+        };
+        ui.painter().hline(
+            rect.x_range(),
+            rect.center().y,
+            Stroke::new(if active { 2.0 } else { 1.0 }, color),
+        );
+        if resp.dragged() {
+            let delta = resp.drag_delta().y;
+            if delta != 0.0 {
+                // Never taller than the rows themselves, never shorter than one.
+                self.favorites_height = Some((shown + delta).clamp(row, content.max(row)));
+            }
+        }
+        if resp.double_clicked() {
+            self.favorites_height = None;
+        }
     }
 
     fn favorite_row(
@@ -89,6 +198,7 @@ impl App {
         ui: &mut Ui,
         id: &FavId,
         index: usize,
+        tab: Option<TabId>,
         expanded: bool,
         actions: &mut Vec<Action>,
     ) -> Rect {
@@ -102,19 +212,33 @@ impl App {
         let visuals = ui.visuals();
         let status = self.favorites.status(id);
         let missing = self.favorites.is_missing(id);
-        let linked = self.favorites.linked_tab(id);
-        let focused = linked.is_some() && linked == self.ws.focused();
+        let open = tab.and_then(|t| self.tabs.get(&t));
+        let focused = tab.is_some() && tab == self.ws.focused();
+        let view = tab.and_then(|t| self.ws.view_of(t));
+        let in_active = view.is_some() && view == Some(self.ws.active);
+        let in_split = view.is_some_and(|v| self.ws.views[v].root.is_split());
         let painter = ui.painter_at(rect.expand(1.0));
 
-        // A lighter tint than the focused tab's, so the tab stays the strong highlight.
+        // The same highlight as a tab row: the favorite's row is its tab.
         let bg = if focused {
-            mix(c.sidebar, c.accent, if c.light { 0.07 } else { 0.09 })
-        } else if resp.hovered() {
+            mix(c.sidebar, c.accent, if c.light { 0.16 } else { 0.22 })
+        } else if in_active || resp.hovered() {
             c.raised_sidebar(0.06)
         } else {
             Color32::TRANSPARENT
         };
         painter.rect_filled(rect, CornerRadius::same(6), bg);
+        if in_split {
+            let color = view.map_or(c.accent, |v| self.view_color(v));
+            painter.rect_filled(
+                Rect::from_min_max(
+                    pos2(rect.left(), rect.top() + 5.0),
+                    pos2(rect.left() + 3.0, rect.bottom() + 2.0),
+                ),
+                CornerRadius::same(2),
+                color,
+            );
+        }
         let text_color = if missing {
             // Dimmed, but never below a legible contrast (or the user's minimum).
             crate::theme::ensure_contrast(
@@ -122,20 +246,27 @@ impl App {
                 c.sidebar,
                 DIM_CONTRAST.max(self.config.min_contrast),
             )
-        } else if focused {
+        } else if focused || in_active {
             visuals.strong_text_color()
         } else {
             visuals.text_color()
         };
+        // Unread output and bells, as on tab rows.
+        let badge = match open {
+            Some(t) if t.bell => Some(c.bell),
+            Some(t) if t.activity => Some(c.accent),
+            _ => None,
+        };
 
         if expanded {
             self.status_dot(&painter, pos2(rect.left() + 11.0, rect.center().y), status);
-            let reset_rect = Rect::from_center_size(
+            let right_button = Rect::from_center_size(
                 pos2(rect.right() - 13.0, rect.center().y),
                 vec2(18.0, 18.0),
             );
+            let left_button = right_button.translate(vec2(-20.0, 0.0));
             let left = rect.left() + 22.0;
-            let right = rect.right() - 28.0;
+            let right = rect.right() - if tab.is_some() { 48.0 } else { 28.0 };
             let mut job = LayoutJob::simple_singleline(
                 fav.name.clone(),
                 FontId::proportional(13.0),
@@ -148,35 +279,49 @@ impl App {
                 galley,
                 text_color,
             );
-            if resp.hovered() || ui.rect_contains_pointer(reset_rect) {
-                let reset = ui
-                    .interact(reset_rect, Id::new(("reset_favorite", id)), Sense::click())
-                    .on_hover_text(if status == FavStatus::Running {
-                        "Reset: start it again from the favorite"
-                    } else {
-                        "Open"
-                    });
-                let fill = if reset.hovered() {
-                    c.raised_sidebar(0.28)
-                } else {
-                    Color32::TRANSPARENT
+            let hovered = resp.hovered()
+                || ui.rect_contains_pointer(right_button)
+                || ui.rect_contains_pointer(left_button);
+            if let Some(color) = badge.filter(|_| !hovered) {
+                painter.circle_filled(right_button.center(), 4.0, color);
+            }
+            if hovered {
+                // Open: ↻ reset and × close. No tab: ▶ open.
+                let buttons: Vec<(Rect, &str, &str, Action)> = match tab {
+                    Some(t) => vec![
+                        (
+                            left_button,
+                            "↻",
+                            "Reset: start it again from the favorite",
+                            Action::ResetFavorite(id.clone()),
+                        ),
+                        (right_button, "×", "Close its tab", Action::Close(t)),
+                    ],
+                    None => vec![(
+                        right_button,
+                        "▶",
+                        "Open",
+                        Action::OpenFavorite(id.clone(), None),
+                    )],
                 };
-                painter.rect_filled(reset_rect, CornerRadius::same(4), fill);
-                // ↻ resets an open tab; ▶ opens one when there's none.
-                let glyph = if status == FavStatus::Running {
-                    "↻"
-                } else {
-                    "▶"
-                };
-                painter.text(
-                    reset_rect.center(),
-                    Align2::CENTER_CENTER,
-                    glyph,
-                    FontId::proportional(13.0),
-                    visuals.text_color(),
-                );
-                if reset.clicked() {
-                    actions.push(Action::ResetFavorite(id.clone()));
+                for (r, glyph, tip, action) in buttons {
+                    let button = ui
+                        .interact(r, Id::new(("favorite_button", id, glyph)), Sense::click())
+                        .on_hover_text(tip);
+                    if button.hovered() {
+                        painter.rect_filled(r, CornerRadius::same(4), c.raised_sidebar(0.28));
+                    }
+                    let size = if glyph == "×" { 15.0 } else { 13.0 };
+                    painter.text(
+                        r.center(),
+                        Align2::CENTER_CENTER,
+                        glyph,
+                        FontId::proportional(size),
+                        visuals.text_color(),
+                    );
+                    if button.clicked() {
+                        actions.push(action);
+                    }
                 }
             }
         } else {
@@ -185,7 +330,7 @@ impl App {
                 icon,
                 CornerRadius::same(5),
                 Stroke::new(1.0, c.raised_sidebar(0.2)),
-                egui::StrokeKind::Inside,
+                StrokeKind::Inside,
             );
             painter.text(
                 icon.center(),
@@ -194,7 +339,26 @@ impl App {
                 FontId::proportional(13.0),
                 text_color,
             );
-            self.status_dot(&painter, icon.right_top() + vec2(-1.0, 1.0), status);
+            self.status_dot(&painter, icon.right_bottom() + vec2(-1.0, -1.0), status);
+            if let Some(color) = badge {
+                painter.circle_filled(icon.right_top() + vec2(-1.0, 1.0), 4.5, color);
+                painter.circle_stroke(
+                    icon.right_top() + vec2(-1.0, 1.0),
+                    4.5,
+                    Stroke::new(1.5, c.sidebar),
+                );
+            }
+            if focused {
+                painter.rect_stroke(
+                    icon.expand(2.5),
+                    CornerRadius::same(7),
+                    Stroke::new(1.5, c.accent),
+                    StrokeKind::Outside,
+                );
+            }
+        }
+        if focused && self.scroll_to_focused {
+            resp.scroll_to_me(None);
         }
 
         let dim = mix(c.fg, c.bg, 0.4);
@@ -215,6 +379,9 @@ impl App {
             if let Some(p) = &fav.profile {
                 ui.label(RichText::new(format!("profile: {p}")).color(dim));
             }
+            if let Some(process) = open.and_then(|t| t.process.as_ref()) {
+                ui.label(RichText::new(format!("running: {process}")).color(dim));
+            }
             let shortcut = self.keybinds.hint(Shortcut::OpenFavorite(index as u8 + 1));
             if index < 9 && !shortcut.is_empty() {
                 ui.label(RichText::new(format!("Open{shortcut}")).color(dim));
@@ -223,34 +390,79 @@ impl App {
         if resp.clicked() {
             actions.push(Action::OpenFavorite(id.clone(), None));
         }
+        if resp.middle_clicked()
+            && let Some(t) = tab
+        {
+            actions.push(Action::Close(t));
+        }
+        if resp.double_clicked() && expanded {
+            actions.push(Action::EditFavorite(id.clone()));
+        }
         if resp.drag_started() {
             egui::DragAndDrop::set_payload(ui.ctx(), FavDrag(id.clone()));
         }
+        let kb = &self.keybinds;
         resp.context_menu(|ui| {
-            let items = [
-                ("Open", Action::OpenFavorite(id.clone(), None)),
-                (
-                    "Open in split",
-                    Action::OpenFavorite(id.clone(), Some(Edge::Right)),
-                ),
-                ("Reveal in files panel", Action::RevealFavorite(id.clone())),
-                ("Edit…", Action::EditFavorite(id.clone())),
-                ("Remove", Action::RemoveFavorite(id.clone())),
-            ];
-            for (text, action) in items {
-                if matches!(action, Action::RemoveFavorite(_)) {
-                    ui.separator();
-                }
-                if ui.button(text).clicked() {
+            let mut item = |ui: &mut Ui, text: &str, shortcut: Option<Shortcut>, action: Action| {
+                let label = shortcut.and_then(|s| kb.label(s)).unwrap_or_default();
+                if ui
+                    .add(egui::Button::new(text).shortcut_text(label))
+                    .clicked()
+                {
                     actions.push(action);
                     ui.close();
                 }
+            };
+            match tab {
+                Some(t) => {
+                    item(
+                        ui,
+                        "Reset",
+                        Some(Shortcut::ResetTab),
+                        Action::ResetFavorite(id.clone()),
+                    );
+                    item(ui, "Split right with new tab", None, Action::SplitFrom(t));
+                    if in_split {
+                        item(
+                            ui,
+                            "Minimise from split",
+                            Some(Shortcut::MinimizePane),
+                            Action::Minimize(t),
+                        );
+                    }
+                }
+                None => {
+                    item(ui, "Open", None, Action::OpenFavorite(id.clone(), None));
+                    item(
+                        ui,
+                        "Open in split",
+                        None,
+                        Action::OpenFavorite(id.clone(), Some(Edge::Right)),
+                    );
+                }
             }
+            item(
+                ui,
+                "Reveal in files panel",
+                None,
+                Action::RevealFavorite(id.clone()),
+            );
+            item(ui, "Rename / edit…", None, Action::EditFavorite(id.clone()));
+            ui.separator();
+            if let Some(t) = tab {
+                item(ui, "Close tab", Some(Shortcut::CloseTab), Action::Close(t));
+            }
+            item(
+                ui,
+                "Remove favorite",
+                None,
+                Action::RemoveFavorite(id.clone()),
+            );
         });
         rect
     }
 
-    /// Running: filled green. Exited: filled red. No session: a hollow ring.
+    /// Open: filled green. Exited: filled red. No tab: a hollow ring.
     fn status_dot(&self, painter: &egui::Painter, center: Pos2, status: FavStatus) {
         let c = &self.chrome;
         let (fill, ring) = match status {

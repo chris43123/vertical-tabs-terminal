@@ -71,6 +71,8 @@ enum Action {
     MoveFavorite(FavId, usize),
     /// Open the favorite dialog for this directory.
     AddFavorite(Option<std::path::PathBuf>),
+    /// Focus this tab and split it to the right with a new tab.
+    SplitFrom(TabId),
 }
 
 /// A line in the tab list.
@@ -281,7 +283,12 @@ impl App {
         let mut current: Option<GroupId> = None;
         let mut last_view = None;
         let active = self.ws.visible();
+        // A favorite's tab, and its split, are drawn in the favorites section.
+        let under_favorites = self.tabs_under_favorites();
         for &id in &self.ws.order {
+            if under_favorites.contains(&id) {
+                continue;
+            }
             let group = self.ws.group_of(id);
             if group != current {
                 if let Some(g) = group {
@@ -415,6 +422,10 @@ impl App {
             Action::RemoveFavorite(id) => self.remove_favorite(&id),
             Action::MoveFavorite(id, to) => self.move_favorite(&id, to),
             Action::AddFavorite(dir) => self.start_add_favorite(dir),
+            Action::SplitFrom(id) => {
+                self.activate(id);
+                self.new_tab(0, Some(Edge::Right));
+            }
         }
     }
 }

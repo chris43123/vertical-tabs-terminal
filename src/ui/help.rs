@@ -147,12 +147,22 @@ fn gestures() -> Vec<(&'static str, Vec<(&'static str, &'static str)>)> {
         (
             "Favorites",
             vec![
-                ("Click", "Open the favorite, or focus its tab"),
-                ("↻ on hover", "Reset its tab from the favorite (or open it)"),
+                (
+                    "Click",
+                    "Open the favorite, or focus its tab (its row is the tab)",
+                ),
+                ("↻ / × on hover", "Reset / close its tab (▶ opens it)"),
+                ("Middle click", "Close its tab"),
+                ("Double click", "Rename / edit"),
                 ("Drag", "Reorder"),
                 (
+                    "Drag the line below",
+                    "Resize the section (double click: default)",
+                ),
+                ("+ on the header", "Add a favorite"),
+                (
                     "Right click",
-                    "Open, open in split, reveal in files, edit, remove",
+                    "Reset, split, reveal in files, edit, close, remove",
                 ),
                 ("Dot", "Green: open; ring: no tab; red: its shell exited"),
             ],

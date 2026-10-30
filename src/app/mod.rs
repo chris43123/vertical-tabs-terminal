@@ -90,6 +90,9 @@ pub struct App {
     pub reset_prompt: Option<crate::ui::ResetPrompt>,
     /// The favorites pinned above the tabs, and the tabs they opened.
     pub favorites: FavoritesState,
+    /// Height of the favorites section, once the user drags its handle (else a share of
+    /// the sidebar).
+    pub favorites_height: Option<f32>,
     /// The add/edit favorite dialog, when open.
     pub favorite_dialog: Option<crate::ui::FavoriteDialog>,
     closed: Vec<ClosedTab>,
@@ -186,6 +189,9 @@ impl App {
             reset_prompt: None,
             favorites,
             favorite_dialog: None,
+            favorites_height: cc
+                .storage
+                .and_then(|s| eframe::get_value::<f32>(s, FAVORITES_HEIGHT_KEY)),
             closed: Vec::new(),
             last_focused: None,
             prev_focused: None,
@@ -255,6 +261,7 @@ impl App {
 }
 
 const UI_ZOOM_KEY: &str = "ui_zoom";
+const FAVORITES_HEIGHT_KEY: &str = "favorites_height";
 
 /// The runtime UI zoom (Ctrl+Shift+=/-), saved across restarts together with the
 /// `ui_scale` it was based on, so editing `ui_scale` in the config still takes effect.
@@ -274,7 +281,7 @@ fn restored_ui_zoom(storage: Option<&dyn eframe::Storage>, ui_scale: f32) -> f32
 }
 
 impl eframe::App for App {
-    /// Only the window geometry and UI zoom are persisted;
+    /// Only the window geometry, the UI zoom and the favorites section's height are persisted;
     /// egui's memory would restore stale focus/scroll state.
     fn persist_egui_memory(&self) -> bool {
         false
@@ -289,6 +296,10 @@ impl eframe::App for App {
                 ui_scale: self.config.ui_scale,
             },
         );
+        match self.favorites_height {
+            Some(h) => eframe::set_value(storage, FAVORITES_HEIGHT_KEY, &h),
+            None => storage.remove_string(FAVORITES_HEIGHT_KEY),
+        }
     }
 
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {

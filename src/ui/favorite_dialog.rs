@@ -1,5 +1,5 @@
 //! The add/edit favorite dialog: name, path, profile and command. Saving checks the path
-//! exists and isn't already a favorite and that the command is one line; a problem shows
+//! exists and that the command is one line; a problem shows
 //! inline and nothing is saved. Enter saves, Esc or a click outside cancels.
 
 use std::path::{Path, PathBuf};

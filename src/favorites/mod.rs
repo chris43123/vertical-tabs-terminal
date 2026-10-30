@@ -248,9 +248,10 @@ impl Favorites {
     }
 
     /// Check a draft and normalize it: trimmed name, canonical path, empty profile and
-    /// command turned into `None`. `except` is the favorite being edited (its own path isn't
-    /// a duplicate, and an unchanged path isn't required to exist, so a favorite whose
-    /// directory is gone for now can still be renamed or get its command fixed).
+    /// command turned into `None`. `except` is the favorite being edited: an unchanged path
+    /// isn't required to exist, so a favorite whose directory is gone for now can still be
+    /// renamed or get its command fixed. The same directory may be pinned several times
+    /// (a shell and `k9s` in one place); favorites are told apart by id.
     fn validate(
         &self,
         draft: Draft,
@@ -270,20 +271,6 @@ impl Favorites {
         } else {
             canonical_dir(&draft.path)?
         };
-        if let Some((i, other)) = self
-            .list
-            .iter()
-            .enumerate()
-            .find(|&(i, f)| Some(i) != except && same_dir(&f.path, &path))
-        {
-            return Err(format!(
-                "{} is already favorite {} `{}` ({})",
-                path.display(),
-                i + 1,
-                other.name,
-                other.id
-            ));
-        }
         let profile = draft
             .profile
             .map(|p| p.trim().to_string())
@@ -350,14 +337,6 @@ fn canonical_dir(path: &Path) -> Result<PathBuf, String> {
         Ok(p) => Err(format!("{} is not a directory", p.display())),
         Err(_) => Err(format!("{} doesn't exist", expanded.display())),
     }
-}
-
-/// Two favorite paths name the same directory (the stored one may have gone missing).
-fn same_dir(stored: &Path, canonical: &Path) -> bool {
-    std::fs::canonicalize(stored)
-        .map(simplify)
-        .unwrap_or_else(|_| stored.to_path_buf())
-        == canonical
 }
 
 /// A canonical path in the form shells and people use. On Windows `canonicalize` returns
@@ -555,15 +534,14 @@ pub(crate) mod tests {
     }
 
     #[test]
-    fn rejects_duplicate_paths_missing_dirs_and_unknown_profiles() {
+    fn same_dir_twice_is_allowed_but_missing_dirs_and_unknown_profiles_are_not() {
         let (root, mut favs) = sample();
-        let err = favs.add(draft("again", &root.join("a")), &[]).unwrap_err();
-        assert!(err.contains("already favorite 1"), "{err}");
-        // The same directory through another spelling is still a duplicate.
-        let err = favs
-            .add(draft("again", &root.join("b").join("..").join("a")), &[])
-            .unwrap_err();
-        assert!(err.contains("already"), "{err}");
+        // One directory, two purposes: a shell and k9s.
+        let mut k9s = draft("k9s", &root.join("b").join("..").join("a"));
+        k9s.command = Some("k9s".into());
+        let i = favs.add(k9s, &[]).unwrap();
+        assert_eq!(favs.list[i].path, favs.list[0].path);
+        assert_ne!(favs.list[i].id, favs.list[0].id);
         assert!(favs.add(draft("x", &root.join("missing")), &[]).is_err());
         let file = root.join("file.txt");
         std::fs::write(&file, "").unwrap();
@@ -574,7 +552,7 @@ pub(crate) mod tests {
         assert!(favs.add(d.clone(), &["zsh".into()]).is_err());
         assert!(favs.add(d, &["zsh".into(), "fish".into()]).is_ok());
         assert!(favs.add(draft("  ", &root), &[]).is_err());
-        assert_eq!(favs.list.len(), 4);
+        assert_eq!(favs.list.len(), 5);
     }
 
     #[test]
@@ -589,7 +567,7 @@ pub(crate) mod tests {
         assert_eq!(favs.list[0].command, None);
         assert!(favs.set(0, Field::Name, None, &[]).is_err());
         let b = favs.list[1].path.display().to_string();
-        assert!(favs.set(0, Field::Path, Some(&b), &[]).is_err());
+        assert!(favs.set(0, Field::Path, Some(&b), &[]).is_ok());
     }
 
     #[test]
