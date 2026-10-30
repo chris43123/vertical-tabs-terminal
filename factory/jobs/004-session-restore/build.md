@@ -62,3 +62,22 @@ Unchanged from the initial build (1-4, 9 ✓; 5 half-manual; 6-8 need a human). 
 ### Review responses
 - design #1: fixed in d724dd7. Dormant title is now `ensure_contrast(mix(text, sidebar, 0.55), sidebar, DIM_CONTRAST.max(min_contrast))`, and `DIM_CONTRAST` moved to `ui/sidebar/mod.rs`, shared with favorites.
 - code, security: PASS. Optional notes (early return in `on_exit`, 0600 file mode, `printable()` on parse errors) not taken.
+
+## Human feedback (2026-10-30T21:30:59Z)
+Commits: 7d6bfc0 Start restored tabs with only their shell
+Checks: fmt ✓  clippy ✓  test ✓ (176 passed)
+Pushed: origin/factory/004-session-restore at 7d6bfc0
+
+### Acceptance criteria
+1-5, 9. ✓ Unchanged (same tests as before).
+6-8. ✓ Manual checks reported OK by the human. `restore_session` stays on by default.
+
+### Review responses
+- human (no re-typed command): fixed in 7d6bfc0. `App::wake` no longer sets
+  `pending_input` from the recipe, so every restored tab (visible at launch or woken on
+  first focus, any profile) starts only its shell in the last known dir. The command is
+  kept in the recipe and `session.toml` (round trip unchanged), so an explicit Reset on a
+  running tab still types it; Reset on a dormant tab just wakes it, without the command.
+  README "Session restore" bullet updated; `config.example.toml` already said running
+  programs aren't restored. No unit test: `wake` needs a live App/PTY; the change is a
+  single assignment, covered by the manual flow.
