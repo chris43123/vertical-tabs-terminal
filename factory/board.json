@@ -53,6 +53,30 @@
       "decision": "APPROVE",
       "note": "merged to main (eee9e52)",
       "updated": "2026-10-30T15:11:53Z"
+    },
+    {
+      "id": "003-favorite-sessions",
+      "title": "Favorite directories as pinned sessions",
+      "branch": "factory/003-favorite-sessions",
+      "stage": "needs-human",
+      "round": 2,
+      "reviews": {
+        "security": "PASS",
+        "ux": "PASS",
+        "ui": "PASS",
+        "code": "PASS"
+      },
+      "history": [
+        {
+          "security": "CHANGES",
+          "ux": "CHANGES",
+          "ui": "CHANGES",
+          "code": "CHANGES"
+        }
+      ],
+      "decision": "ESCALATE",
+      "note": "All four reviews PASS; manual criteria 5-10 never run in a GUI, plus new CLI, favorites.toml and Reset-follows-favorite need a human.",
+      "updated": "2026-10-30T16:46:50Z"
     }
   ]
 }
