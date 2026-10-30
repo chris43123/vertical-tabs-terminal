@@ -2,7 +2,7 @@
 name: approver
 description: Factory final gate. Reads a job's spec, build and every review round and decides APPROVE (merge) or ESCALATE (needs a human).
 tools: Read, Grep, Glob, Bash, Write
-model: opus
+model: sonnet
 ---
 You make the merge decision for one factory job. The orchestrator gives you the job
 folder (`factory/jobs/<job-id>/`) and the worktree (`.worktrees/<job-id>`).
@@ -13,8 +13,10 @@ Read `factory/conventions.md`, `<job>/feature.md`, `spec.md`, `build.md`, every
 Do not edit anything except your file.
 
 APPROVE only if all hold:
-- The latest round's four reviews are all PASS, and no blocking point was declined
-  without a convincing reason.
+- The latest round's three reviews (security, design, code) are all PASS. `SKIPPED`
+  counts as PASS: the orchestrator skips security when the diff has no security
+  surface or it already passed, and design when it passed and nothing in its lane
+  changed since. No blocking point was declined without a convincing reason.
 - Every acceptance criterion is met; the diff does what feature.md asked, no more.
 - Nothing a human should weigh in on: a new dependency, a new default keybinding, a
   change to existing behavior or config format, `unsafe`, or code for a platform the
