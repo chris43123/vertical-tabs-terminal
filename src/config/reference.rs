@@ -39,44 +39,220 @@ const fn opt(
 }
 
 pub const OPTIONS: &[Opt] = &[
-    opt("scrollback", "integer", "", Some((0.0, 1e7)), "Lines of scrollback kept per tab."),
-    opt("sidebar_width", "float", "", Some((80.0, 1000.0)), "Sidebar width in logical pixels when expanded."),
-    opt("sidebar_collapsed", "bool", "", None, "Start with the sidebar collapsed to icons."),
-    opt("default_profile", "string", "a profile name (a discovered shell or one from `[[profiles]]`)", None, "Profile used for new tabs. Unset: the first discovered shell."),
-    opt("theme", "string", "a built-in theme, or the name of `<name>.toml` / `<name>.conf` (kitty) in the `themes` folder next to the config", None, "Color theme."),
-    opt("theme_file", "path", "a vtt `.toml` or kitty theme file; `~` is expanded", None, "Theme file to use instead of `theme`. Watched: edits recolor live."),
-    opt("adopt_shell_palette", "bool", "", None, "When a shell sets colors via escape sequences (pywal, wallust…), apply them to the whole app instead of just that tab."),
-    opt("editor", "string", "a command, e.g. `\"nvim\"` or `\"code --wait\"`", None, "Editor for \"Open settings\". Unset: $VISUAL / $EDITOR, then the system's default app. Terminal editors open in a new tab."),
-    opt("ui_scale", "float", "", Some((0.5, 3.0)), "Scale of the whole UI. Runtime zoom is remembered until this value changes."),
-    opt("min_contrast", "float", "1.0 is off; 4.5 is WCAG AA, 7 is AAA", Some((1.0, 21.0)), "Minimum contrast ratio between terminal text and its background."),
-    opt("reduce_motion", "bool", "", None, "Turn off UI animations, smooth scrolling and cursor blinking."),
-    opt("focus_border_width", "float", "0 for none", Some((0.0, 6.0)), "Width in points of the accent border around the focused pane in a split."),
-    opt("bell", "string", "`\"badge\"`, `\"flash\"` or `\"none\"`", None, "What a terminal bell does: mark the tab, also flash the pane, or nothing."),
-    opt("zen_edge_width", "float", "", Some((1.0, 200.0)), "Zen mode: width in points of the strip at the window's left edge that reveals the sidebar."),
-    opt("focus_follows_mouse", "bool", "", None, "Focus a pane in a split by moving the pointer over it, without clicking."),
-    opt("hide_pointer_when_typing", "bool", "", None, "Hide the mouse pointer while typing into a terminal; it comes back when the mouse moves."),
-    opt("copy_on_select", "bool", "", None, "Copy text to the clipboard as soon as you finish selecting it with the mouse (drag, double or triple click)."),
-    opt("font.family", "string", "an installed font family", None, "Terminal font. Unset: the system monospace font."),
-    opt("font.size", "float", "", Some((6.0, 48.0)), "Font size in points. Pane zoom adds to it."),
-    opt("font.line_height", "float", "", Some((0.8, 3.0)), "Line height as a multiple of the font's own."),
-    opt("font.letter_spacing", "float", "", Some((-2.0, 10.0)), "Extra space between characters, in points."),
-    opt("cursor.style", "string", "`\"block\"`, `\"beam\"` or `\"underline\"`", None, "Cursor shape when the program doesn't choose one."),
-    opt("cursor.blink", "bool", "", None, "Blink the cursor (never with `reduce_motion`)."),
-    opt("cursor.thickness", "float", "", Some((0.5, 4.0)), "Thickness multiplier for beam, underline and the unfocused outline."),
-    opt("files.open", "bool", "", None, "Show the files panel at startup."),
-    opt("files.width", "float", "", Some((80.0, 1000.0)), "Initial files panel width in logical pixels."),
-    opt("files.show_hidden", "bool", "", None, "List dotfiles (and hidden files on Windows)."),
-    opt("files.wrap", "bool", "", None, "Wrap long lines in text and code previews."),
+    opt(
+        "scrollback",
+        "integer",
+        "",
+        Some((0.0, 1e7)),
+        "Lines of scrollback kept per tab.",
+    ),
+    opt(
+        "sidebar_width",
+        "float",
+        "",
+        Some((80.0, 1000.0)),
+        "Sidebar width in logical pixels when expanded.",
+    ),
+    opt(
+        "sidebar_collapsed",
+        "bool",
+        "",
+        None,
+        "Start with the sidebar collapsed to icons.",
+    ),
+    opt(
+        "default_profile",
+        "string",
+        "a profile name (a discovered shell or one from `[[profiles]]`)",
+        None,
+        "Profile used for new tabs. Unset: the first discovered shell.",
+    ),
+    opt(
+        "theme",
+        "string",
+        "a built-in theme, or the name of `<name>.toml` / `<name>.conf` (kitty) in the `themes` folder next to the config",
+        None,
+        "Color theme.",
+    ),
+    opt(
+        "theme_file",
+        "path",
+        "a vtt `.toml` or kitty theme file; `~` is expanded",
+        None,
+        "Theme file to use instead of `theme`. Watched: edits recolor live.",
+    ),
+    opt(
+        "adopt_shell_palette",
+        "bool",
+        "",
+        None,
+        "When a shell sets colors via escape sequences (pywal, wallust…), apply them to the whole app instead of just that tab.",
+    ),
+    opt(
+        "editor",
+        "string",
+        "a command, e.g. `\"nvim\"` or `\"code --wait\"`",
+        None,
+        "Editor for \"Open settings\". Unset: $VISUAL / $EDITOR, then the system's default app. Terminal editors open in a new tab.",
+    ),
+    opt(
+        "ui_scale",
+        "float",
+        "",
+        Some((0.5, 3.0)),
+        "Scale of the whole UI. Runtime zoom is remembered until this value changes.",
+    ),
+    opt(
+        "min_contrast",
+        "float",
+        "1.0 is off; 4.5 is WCAG AA, 7 is AAA",
+        Some((1.0, 21.0)),
+        "Minimum contrast ratio between terminal text and its background.",
+    ),
+    opt(
+        "reduce_motion",
+        "bool",
+        "",
+        None,
+        "Turn off UI animations, smooth scrolling and cursor blinking.",
+    ),
+    opt(
+        "focus_border_width",
+        "float",
+        "0 for none",
+        Some((0.0, 6.0)),
+        "Width in points of the accent border around the focused pane in a split.",
+    ),
+    opt(
+        "bell",
+        "string",
+        "`\"badge\"`, `\"flash\"` or `\"none\"`",
+        None,
+        "What a terminal bell does: mark the tab, also flash the pane, or nothing.",
+    ),
+    opt(
+        "zen_edge_width",
+        "float",
+        "",
+        Some((1.0, 200.0)),
+        "Zen mode: width in points of the strip at the window's left edge that reveals the sidebar.",
+    ),
+    opt(
+        "focus_follows_mouse",
+        "bool",
+        "",
+        None,
+        "Focus a pane in a split by moving the pointer over it, without clicking.",
+    ),
+    opt(
+        "hide_pointer_when_typing",
+        "bool",
+        "",
+        None,
+        "Hide the mouse pointer while typing into a terminal; it comes back when the mouse moves.",
+    ),
+    opt(
+        "copy_on_select",
+        "bool",
+        "",
+        None,
+        "Copy text to the clipboard as soon as you finish selecting it with the mouse (drag, double or triple click).",
+    ),
+    opt(
+        "font.family",
+        "string",
+        "an installed font family",
+        None,
+        "Terminal font. Unset: the system monospace font.",
+    ),
+    opt(
+        "font.size",
+        "float",
+        "",
+        Some((6.0, 48.0)),
+        "Font size in points. Pane zoom adds to it.",
+    ),
+    opt(
+        "font.line_height",
+        "float",
+        "",
+        Some((0.8, 3.0)),
+        "Line height as a multiple of the font's own.",
+    ),
+    opt(
+        "font.letter_spacing",
+        "float",
+        "",
+        Some((-2.0, 10.0)),
+        "Extra space between characters, in points.",
+    ),
+    opt(
+        "cursor.style",
+        "string",
+        "`\"block\"`, `\"beam\"` or `\"underline\"`",
+        None,
+        "Cursor shape when the program doesn't choose one.",
+    ),
+    opt(
+        "cursor.blink",
+        "bool",
+        "",
+        None,
+        "Blink the cursor (never with `reduce_motion`).",
+    ),
+    opt(
+        "cursor.thickness",
+        "float",
+        "",
+        Some((0.5, 4.0)),
+        "Thickness multiplier for beam, underline and the unfocused outline.",
+    ),
+    opt(
+        "files.open",
+        "bool",
+        "",
+        None,
+        "Show the files panel at startup.",
+    ),
+    opt(
+        "files.width",
+        "float",
+        "",
+        Some((80.0, 1000.0)),
+        "Initial files panel width in logical pixels.",
+    ),
+    opt(
+        "files.show_hidden",
+        "bool",
+        "",
+        None,
+        "List dotfiles (and hidden files on Windows).",
+    ),
+    opt(
+        "files.wrap",
+        "bool",
+        "",
+        None,
+        "Wrap long lines in text and code previews.",
+    ),
 ];
 
 /// Keys of one `[[profiles]]` entry.
 pub const PROFILE_KEYS: &[(&str, &str, &str)] = &[
-    ("name", "string, required", "Shown in the palette and new-tab menu. Same name as a discovered shell replaces it."),
+    (
+        "name",
+        "string, required",
+        "Shown in the palette and new-tab menu. Same name as a discovered shell replaces it.",
+    ),
     ("command", "string, required", "Program to run."),
     ("args", "list of strings", "Arguments."),
     ("cwd", "path", "Starting directory."),
     ("env", "table of strings", "Extra environment variables."),
-    ("icon", "string", "One or two characters shown in the sidebar."),
+    (
+        "icon",
+        "string",
+        "One or two characters shown in the sidebar.",
+    ),
     ("color", "string", "`\"#rrggbb\"` for the icon."),
 ];
 
@@ -286,7 +462,11 @@ pub fn lint(table: &toml::Table) -> Vec<String> {
             continue;
         }
         match value.as_table() {
-            Some(sub) if OPTIONS.iter().any(|o| o.key.starts_with(&format!("{key}."))) => {
+            Some(sub)
+                if OPTIONS
+                    .iter()
+                    .any(|o| o.key.starts_with(&format!("{key}."))) =>
+            {
                 for (k, v) in sub {
                     check(format!("{key}.{k}"), v);
                 }
@@ -352,19 +532,22 @@ fn set(key: &str, values: Option<&[String]>) -> Result<String, String> {
     let value = if table == "keybindings" {
         Action::from_name(name).ok_or_else(|| unknown(key))?;
         // No chords unbinds the action.
-        values.map(|chords| {
-            for c in chords {
-                Chord::parse(c).map_err(|e| format!("`{c}`: {e}"))?;
-            }
-            Ok::<_, String>(edit::chords_value(chords))
-        })
-        .transpose()?
+        values
+            .map(|chords| {
+                for c in chords {
+                    Chord::parse(c).map_err(|e| format!("`{c}`: {e}"))?;
+                }
+                Ok::<_, String>(edit::chords_value(chords))
+            })
+            .transpose()?
     } else {
         let o = find(key).ok_or_else(|| unknown(key))?;
         values
             .map(|v| match v {
                 [one] => parse_value(o, one),
-                _ => Err(format!("`{key}` takes one value (quote it if it has spaces)")),
+                _ => Err(format!(
+                    "`{key}` takes one value (quote it if it has spaces)"
+                )),
             })
             .transpose()?
     };
@@ -401,8 +584,10 @@ fn parse_value(o: &Opt, raw: &str) -> Result<String, String> {
         "bool" => toml::Value::Boolean(raw.parse().map_err(|_| wrong())?),
         _ => toml::Value::String(raw.to_string()),
     };
-    if let (Some((lo, hi)), Some(n)) = (o.range, value.as_float().or(value.as_integer().map(|i| i as f64)))
-        && !(lo..=hi).contains(&n)
+    if let (Some((lo, hi)), Some(n)) = (
+        o.range,
+        value.as_float().or(value.as_integer().map(|i| i as f64)),
+    ) && !(lo..=hi).contains(&n)
     {
         return Err(format!("`{}` must be between {lo} and {hi}", o.key));
     }
@@ -416,8 +601,7 @@ fn unknown(key: &str) -> String {
 /// Write `REFERENCE.md` next to the config file when it's missing or out of date, so agents
 /// and people editing the file find the reference without running vtt.
 pub fn write_beside_config() {
-    let Some(path) = Config::path().and_then(|p| p.parent().map(|d| d.join("REFERENCE.md")))
-    else {
+    let Some(path) = Config::path().and_then(|p| p.parent().map(|d| d.join("REFERENCE.md"))) else {
         return;
     };
     let text = markdown();
@@ -540,7 +724,11 @@ mod tests {
             assert!(find(k).is_some(), "`{k}` is missing from OPTIONS");
         }
         for o in OPTIONS {
-            assert!(keys.iter().any(|k| k == o.key), "`{}` isn't a Config field", o.key);
+            assert!(
+                keys.iter().any(|k| k == o.key),
+                "`{}` isn't a Config field",
+                o.key
+            );
         }
     }
 
@@ -562,7 +750,11 @@ mod tests {
             }
         }
         for o in OPTIONS {
-            assert!(found.iter().any(|k| k == o.key), "`{}` is missing from config.example.toml", o.key);
+            assert!(
+                found.iter().any(|k| k == o.key),
+                "`{}` is missing from config.example.toml",
+                o.key
+            );
         }
     }
 
@@ -604,7 +796,11 @@ mod tests {
         assert!(problems_in("bell = \"loud\"\n").is_err());
         let p = problems_in("[keybindings]\nnew_tab = \"ctrl+nope\"\n").unwrap();
         assert!(p.iter().any(|p| p.contains("ctrl+nope")), "{p:?}");
-        assert!(problems_in(include_str!("../../config.example.toml")).unwrap().is_empty());
+        assert!(
+            problems_in(include_str!("../../config.example.toml"))
+                .unwrap()
+                .is_empty()
+        );
     }
 
     #[test]

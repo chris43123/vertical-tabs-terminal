@@ -224,13 +224,22 @@ mod tests {
         let t = edit_key(text, "", "scrollback", Some("100"));
         assert!(t.starts_with("# top\nscrollback = 100\n\n[font]"), "{t}");
         let t = edit_key(text, "", "bell", Some("\"none\""));
-        assert!(t.starts_with("# top\nscrollback = 5\nbell = \"none\"\n\n[font]"), "{t}");
+        assert!(
+            t.starts_with("# top\nscrollback = 5\nbell = \"none\"\n\n[font]"),
+            "{t}"
+        );
         // `size` in [font] isn't confused with a key of the same name elsewhere.
         let t = edit_key(text, "font", "size", Some("16.0"));
         assert!(t.contains("# family = \"x\"\nsize = 16.0\n"), "{t}");
         let t = edit_key(text, "cursor", "blink", Some("false"));
-        assert!(t.ends_with("new_tab = \"f1\"\n\n[cursor]\nblink = false\n"), "{t}");
-        assert_eq!(edit_key(text, "", "scrollback", None), text.replace("scrollback = 5\n", ""));
+        assert!(
+            t.ends_with("new_tab = \"f1\"\n\n[cursor]\nblink = false\n"),
+            "{t}"
+        );
+        assert_eq!(
+            edit_key(text, "", "scrollback", None),
+            text.replace("scrollback = 5\n", "")
+        );
     }
 
     #[test]
