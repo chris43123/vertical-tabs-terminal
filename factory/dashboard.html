@@ -69,6 +69,7 @@
   .chip.PASS { background: var(--pass-bg); color: var(--pass); }
   .chip.CHANGES { background: var(--chg-bg); color: var(--chg); }
   .chip.pending { border: 1px dashed var(--pend); background: transparent; }
+  .chip.SKIPPED { background: transparent; color: var(--muted); text-decoration: line-through; }
   .empty { color: var(--muted); font-size: 12.5px; text-align: center; padding: 30px 6px; }
 
   /* Drawer */
@@ -273,7 +274,7 @@ function md(src) {
   for (let i = 0; i < lines.length; i++) {
     const l = lines[i];
     let m;
-    if (i === first && (m = l.match(/^(?:VERDICT:\s*)?(PASS|CHANGES|APPROVE|ESCALATE)\s*$/))) {
+    if (i === first && (m = l.match(/^(?:VERDICT:\s*)?(PASS|CHANGES|SKIPPED|APPROVE|ESCALATE)\s*$/))) {
       out.push(`<div class="verdict ${m[1]}">${esc(l.trim())}</div>`); continue;
     }
     if (l.startsWith("```")) {

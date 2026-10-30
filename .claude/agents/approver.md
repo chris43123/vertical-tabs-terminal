@@ -13,7 +13,9 @@ Read `factory/conventions.md`, `<job>/feature.md`, `spec.md`, `build.md`, every
 Do not edit anything except your file.
 
 APPROVE only if all hold:
-- The latest round's four reviews are all PASS, and no blocking point was declined
+- The latest round's four reviews are all PASS (`SKIPPED` security counts as PASS:
+  the orchestrator skips it when the diff has no security surface or it already
+  passed), and no blocking point was declined
   without a convincing reason.
 - Every acceptance criterion is met; the diff does what feature.md asked, no more.
 - Nothing a human should weigh in on: a new dependency, a new default keybinding, a

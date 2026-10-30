@@ -32,8 +32,8 @@ Arguments: `$ARGUMENTS`
         ┌─────────────┬──────┴──────┬─────────────┐         │
         ▼             ▼             ▼             ▼         │
   ┌───────────┐ ┌───────────┐ ┌───────────┐ ┌───────────┐   │
-  │  security │ │     ux    │ │ ui design │ │    code   │   │
-  │    opus   │ │   sonnet  │ │   sonnet  │ │   sonnet  │   │
+  │ security* │ │     ux    │ │ ui design │ │    code   │   │
+  │   sonnet  │ │   sonnet  │ │   sonnet  │ │   sonnet  │   │
   └─────┬─────┘ └─────┬─────┘ └─────┬─────┘ └─────┬─────┘   │
         └─────────────┴──────┬──────┴─────────────┘         │
                              ▼                              │
@@ -57,6 +57,17 @@ Arguments: `$ARGUMENTS`
   CHANGES after the last round → approver anyway, which escalates.
 - Reviewers: `security-reviewer`, `ux-reviewer`, `ui-reviewer`, `code-reviewer`,
   writing `review-security.md`, `review-ux.md`, `review-ui.md`, `review-code.md`.
+- \* **Security is gated** (vtt is a personal desktop app; the lane is the costliest).
+  Spawn `security-reviewer` in a round only if both hold:
+  1. The diff touches its surface: `unsafe`/FFI, `Cargo.toml`/`Cargo.lock`, process
+     spawning or killing, the PTY, text typed into a shell, or escape-sequence/OSC
+     handling. Check with `git -C .worktrees/<id> diff main...HEAD` (names and a grep
+     for `unsafe`, `Command::new`, `libc::`, `windows_sys`, `kill`, `pty`, `osc`).
+  2. It hasn't already passed this job: it never ran, or its last verdict was CHANGES,
+     or the surface changed since it last passed (`git diff <sha it reviewed>..HEAD`).
+  Otherwise write `round-N/review-security.md` yourself, first line exactly
+  `VERDICT: SKIPPED`, then one line saying why (no security surface / passed in round
+  M at <sha>), and set its chip to `SKIPPED`. SKIPPED counts as PASS.
 
 ## Files
 
@@ -111,16 +122,17 @@ step below so the dashboard moves.
 ### Review round N
 1. `mkdir factory/jobs/<id>/round-N`. Board: stage `review`, `round: N`, all four
    reviews `pending`.
-2. Spawn all four reviewers **in one message** (they run in parallel), each with:
+2. Spawn the reviewers **in one message** (they run in parallel; security only if
+   gated in, see above), each with:
    "Job folder: factory/jobs/<id>/. Worktree: .worktrees/<id>. Repo root: <path>.
    Round folder: factory/jobs/<id>/round-N/."
 3. **WAIT FOR ALL.** As each reviewer finishes, read the first line of its file and
    set its chip on the board. The round is done only when all four `review-*.md`
    files exist in the round folder (check with `ls`). Never resume the builder
    mid-round. If a reviewer finished without writing its file, or the first line
-   isn't `VERDICT: PASS`/`VERDICT: CHANGES`, re-spawn that reviewer once; if it fails
+   isn't `VERDICT: PASS`/`VERDICT: CHANGES` (or your own `VERDICT: SKIPPED`), re-spawn that reviewer once; if it fails
    again, record it as CHANGES.
-4. All PASS → approver. Any CHANGES and N < MAX_ROUNDS → move `reviews` to
+4. All PASS (or SKIPPED) → approver. Any CHANGES and N < MAX_ROUNDS → move `reviews` to
    `history`, stage `build`, and resume the same builder with **SendMessage to
    `builder-<id>`**: "Review round folder: factory/jobs/<id>/round-N/. Address it."
    Wait for DONE, then run round N+1. Any CHANGES at the last round → approver
@@ -165,5 +177,6 @@ If `.worktrees/<id>` is missing, recreate it from the branch:
   `factory/conventions.md`). Never force-push.
 - Commit and push your own `factory/` changes (board, feature.md, human.md) at the end
   of each command, so the other machines see the same board.
-- Never edit an agent's file. To change an outcome, run the agent again.
+- Never edit an agent's file. To change an outcome, run the agent again. The only file
+  you write in a round folder is a skipped `review-security.md`.
 - Watch it: `cd factory && python3 -m http.server` → http://localhost:8000/dashboard.html
