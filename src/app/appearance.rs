@@ -138,8 +138,9 @@ impl App {
             self.set_theme(&theme);
             self.reset_tab_colors();
         }
-        // Profiles may have changed under the favorites.
-        self.warn_unknown_profiles();
+        // Problems were cleared: report the favorites' again (and profiles may have changed
+        // under them).
+        self.reload_favorites();
     }
 
     /// Create the config if needed and open it: in a new tab when an editor is configured,

@@ -17,19 +17,19 @@ use crate::workspace::Edge;
 use super::{Action, ROW_HEIGHT};
 
 const FAV_HEIGHT: f32 = 26.0;
+/// Most of the sidebar's remaining height the favorites take before they scroll.
+const MAX_SHARE: f32 = 0.4;
+/// Contrast kept by a missing favorite's dimmed name against the sidebar.
+const DIM_CONTRAST: f32 = 3.0;
 
 /// Payload for dragging a favorite to reorder it.
 #[derive(Clone, Debug)]
 pub struct FavDrag(pub FavId);
 
 impl App {
-    /// Draw the favorites section, if there are any (followed by a separator).
-    pub(super) fn favorites_section(
-        &mut self,
-        ui: &mut Ui,
-        expanded: bool,
-        actions: &mut Vec<Action>,
-    ) {
+    /// Draw the favorites section, if there are any (followed by a separator). It scrolls on
+    /// its own past a share of the sidebar's height, so the tab list always keeps room.
+    pub(super) fn favorites_section(&self, ui: &mut Ui, expanded: bool, actions: &mut Vec<Action>) {
         if self.favorites.list.list.is_empty() {
             return;
         }
@@ -41,11 +41,19 @@ impl App {
             .map(|f| f.id.clone())
             .collect();
         let mut rects = Vec::with_capacity(ids.len());
-        for (i, id) in ids.iter().enumerate() {
-            rects.push(self.favorite_row(ui, id, i, expanded, actions));
-        }
+        let visible = egui::ScrollArea::vertical()
+            .id_salt(("favorites", expanded))
+            .max_height((ui.available_height() * MAX_SHARE).max(FAV_HEIGHT))
+            .auto_shrink([false, true])
+            .show(ui, |ui| {
+                for (i, id) in ids.iter().enumerate() {
+                    rects.push(self.favorite_row(ui, id, i, expanded, actions));
+                }
+            })
+            .inner_rect;
 
         // Reorder: an insertion line between rows while a favorite is dragged over them.
+        // Row rects are where the rows are, scrolled out of view or not.
         let dragged = egui::DragAndDrop::payload::<FavDrag>(ui.ctx()).map(|p| p.0.clone());
         let section = rects
             .iter()
@@ -53,7 +61,7 @@ impl App {
             .reduce(|a, b| a.union(b))
             .unwrap_or(Rect::NOTHING);
         if let (Some(dragged), Some(pos)) = (dragged, ui.ctx().input(|i| i.pointer.hover_pos()))
-            && section.expand2(vec2(0.0, 6.0)).contains(pos)
+            && visible.expand2(vec2(0.0, 6.0)).contains(pos)
         {
             let idx = rects
                 .iter()
@@ -63,8 +71,11 @@ impl App {
                 .get(idx)
                 .map(|r| r.top() - 1.0)
                 .unwrap_or_else(|| section.bottom() + 1.0);
-            ui.painter()
-                .hline(section.x_range(), y, Stroke::new(2.0, self.chrome.accent));
+            ui.painter_at(visible.expand(2.0)).hline(
+                section.x_range(),
+                y,
+                Stroke::new(2.0, self.chrome.accent),
+            );
             if ui.ctx().input(|i| i.pointer.any_released()) {
                 actions.push(Action::MoveFavorite(dragged, idx));
             }
@@ -95,8 +106,9 @@ impl App {
         let focused = linked.is_some() && linked == self.ws.focused();
         let painter = ui.painter_at(rect.expand(1.0));
 
+        // A lighter tint than the focused tab's, so the tab stays the strong highlight.
         let bg = if focused {
-            mix(c.sidebar, c.accent, if c.light { 0.12 } else { 0.16 })
+            mix(c.sidebar, c.accent, if c.light { 0.07 } else { 0.09 })
         } else if resp.hovered() {
             c.raised_sidebar(0.06)
         } else {
@@ -104,7 +116,12 @@ impl App {
         };
         painter.rect_filled(rect, CornerRadius::same(6), bg);
         let text_color = if missing {
-            mix(visuals.text_color(), c.sidebar, 0.55)
+            // Dimmed, but never below a legible contrast (or the user's minimum).
+            crate::theme::ensure_contrast(
+                mix(visuals.text_color(), c.sidebar, 0.55),
+                c.sidebar,
+                DIM_CONTRAST.max(self.config.min_contrast),
+            )
         } else if focused {
             visuals.strong_text_color()
         } else {
@@ -145,10 +162,16 @@ impl App {
                     Color32::TRANSPARENT
                 };
                 painter.rect_filled(reset_rect, CornerRadius::same(4), fill);
+                // ↻ resets an open tab; ▶ opens one when there's none.
+                let glyph = if status == FavStatus::Running {
+                    "↻"
+                } else {
+                    "▶"
+                };
                 painter.text(
                     reset_rect.center(),
                     Align2::CENTER_CENTER,
-                    "↻",
+                    glyph,
                     FontId::proportional(13.0),
                     visuals.text_color(),
                 );
@@ -291,7 +314,7 @@ mod tests {
                 swash::FontRef::from_index(data, 0).is_some_and(|f| f.charmap().map(ch) != 0)
             })
         };
-        for ch in ['↻', '⚠', '🚀', '🐳', '★', '❤'] {
+        for ch in ['↻', '▶', '⚠', '🚀', '🐳', '★', '❤'] {
             assert!(covered(ch), "{ch}");
         }
     }

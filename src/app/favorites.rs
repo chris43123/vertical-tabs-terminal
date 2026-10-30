@@ -42,7 +42,10 @@ impl FavoritesState {
         };
         if let Some(store) = &state.store {
             match store.load() {
-                Ok(list) => state.replace(list),
+                Ok(list) => {
+                    warn_problems(&list);
+                    state.replace(list);
+                }
                 Err(err) => crate::diag::warn(err),
             }
         }
@@ -139,6 +142,16 @@ impl FavoritesState {
     }
 }
 
+/// How a broken favorites file is reported (see [`Store::load`]).
+const INVALID_FILE: &str = "invalid favorites file";
+
+/// Report what loading had to fix in a hand-edited file.
+fn warn_problems(list: &Favorites) {
+    for p in &list.problems {
+        crate::diag::warn(p.clone());
+    }
+}
+
 impl App {
     /// The favorites file changed on disk: reload it (a broken file keeps the old list).
     pub(super) fn reload_favorites(&mut self) {
@@ -147,6 +160,9 @@ impl App {
         };
         match store.load() {
             Ok(list) => {
+                // The file is readable again: drop the banner that said it wasn't.
+                self.problems.retain(|p| !p.starts_with(INVALID_FILE));
+                warn_problems(&list);
                 self.favorites.replace(list);
                 self.warn_unknown_profiles();
             }
@@ -178,7 +194,11 @@ impl App {
             .or(self.profiles.first())?
             .clone();
         let mut recipe = LaunchRecipe::new(profile, Some(fav.path.clone()));
-        recipe.command = fav.command.clone();
+        // Loading already drops bad commands; this keeps typing to one Enter whatever the source.
+        recipe.command = fav
+            .command
+            .clone()
+            .filter(|c| crate::favorites::check_command(c).is_ok());
         recipe.favorite = Some(fav.id.clone());
         Some(recipe)
     }
@@ -402,6 +422,39 @@ mod tests {
         // Opening again clears the exited mark.
         s.link(a.clone(), 3);
         assert_eq!(s.status(&a), FavStatus::Running);
+    }
+
+    #[test]
+    fn a_hand_edited_multiline_command_is_never_typed() {
+        let (root, mut s) = state("typed");
+        std::fs::create_dir(root.join("a")).unwrap();
+        let path = root.join("a").display().to_string().replace('\\', "\\\\");
+        let text = format!(
+            "version = 1\n[[favorite]]\nid = \"f1\"\nname = \"a\"\npath = \"{path}\"\n\
+             command = \"make\\nrm -rf ~\"\n"
+        );
+        std::fs::write(s.store_path().unwrap(), text).unwrap();
+        let list = s.store.as_ref().unwrap().load().unwrap();
+        assert_eq!(list.problems.len(), 1);
+        s.replace(list);
+        let fav = s.list.get("f1").unwrap();
+        assert_eq!(fav.command, None);
+        // Nothing to type, so the shell only ever gets what the user types.
+        let mut recipe = LaunchRecipe::new(test_profile(), Some(fav.path.clone()));
+        recipe.command = fav.command.clone();
+        assert_eq!(recipe.typed_input(), None);
+    }
+
+    fn test_profile() -> crate::terminal::profiles::Profile {
+        crate::terminal::profiles::Profile {
+            name: "sh".into(),
+            command: "/bin/sh".into(),
+            args: Vec::new(),
+            cwd: None,
+            env: HashMap::new(),
+            icon: "$".into(),
+            color: None,
+        }
     }
 
     #[test]

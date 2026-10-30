@@ -1,6 +1,6 @@
-//! The vertical tab sidebar: pinned favorites above the tabs, tab rows, split views under a named header, folders (Zen-style
-//! tab groups), badges, rename, reorder, drag source, a long-hover card with the tab's cwd,
-//! and the collapsed icon strip that peeks open on hover.
+//! The vertical tab sidebar: pinned favorites above the tabs, tab rows, split views under a
+//! named header, folders (Zen-style tab groups), badges, rename, reorder, drag source, a
+//! long-hover card with the tab's cwd, and the collapsed icon strip that peeks open on hover.
 
 mod favorites;
 mod folder;

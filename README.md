@@ -145,8 +145,8 @@ Favorites are directories pinned above the tabs in the sidebar. Each has a name 
 
 - **Click** a favorite to open it in a new tab. If its tab is already open, the click focuses it. Two favorites with the same name stay separate: each remembers the tab it opened.
 - The **dot** says green when its tab is open, a ring when it has none, and red when its shell exited on its own. Click it again to start a new one.
-- **↻** (on hover) resets its tab: everything in it is killed and it starts again from the favorite as it is *now*, so a command you changed since takes effect. Reset tab on a favorite's tab does the same.
-- **Drag** to reorder. **Right-click** for Open, Open in split, Reveal in files panel, Edit… and Remove.
+- **↻** (on hover; ▶ when it has no tab, which opens one) resets its tab: everything in it is killed and it starts again from the favorite as it is *now*, so a command you changed since takes effect. Reset tab on a favorite's tab does the same.
+- **Drag** to reorder. **Right-click** for Open, Open in split, Reveal in files panel, Edit… and Remove. (Open in split on a favorite that is already open focuses its tab instead.)
 - A favorite whose directory is gone is dimmed, and clicking it only says so. vtt checks when it loads the list, when the list changes and when you click; it never polls.
 - With the sidebar collapsed, a favorite shows the first letter or emoji of its name, plus the dot.
 - **Add one** with "Add directory to favorites" in a tab's right-click menu (its current directory), in a folder's right-click menu in the files panel, or from the palette. The dialog asks for the name, path, profile and command. It won't save a path that doesn't exist or is already a favorite, or a command with more than one line.

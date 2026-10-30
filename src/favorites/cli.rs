@@ -63,8 +63,12 @@ pub fn run_cli(args: &[String]) -> Option<i32> {
 pub fn run(args: &[String], env: &Env, out: &mut dyn Write, err: &mut dyn Write) -> i32 {
     let args: Vec<&str> = args.iter().map(String::as_str).collect();
     let result = match args[..] {
-        ["list"] => list(env, false),
-        ["list", "--json"] => list(env, true),
+        ["list"] => list(env, false, err),
+        ["list", "--json"] => list(env, true, err),
+        ["--help" | "-h" | "help"] => {
+            let _ = writeln!(out, "{USAGE}");
+            return 0;
+        }
         ["add", ref rest @ ..] => match parse_add(rest) {
             Some(add) => add_cmd(env, add),
             None => return usage(err),
@@ -223,8 +227,11 @@ fn profiles_for(env: &Env, needed: bool) -> Vec<String> {
     if needed { (env.profiles)() } else { Vec::new() }
 }
 
-fn list(env: &Env, json: bool) -> Result<String, String> {
+fn list(env: &Env, json: bool, err: &mut dyn Write) -> Result<String, String> {
     let favs = env.store.load()?;
+    for p in &favs.problems {
+        let _ = writeln!(err, "vtt: warning: {}", printable(p));
+    }
     Ok(if json {
         list_json(&favs)
     } else {
@@ -261,12 +268,18 @@ fn list_text(favs: &Favorites) -> String {
         .iter()
         .enumerate()
         .map(|(i, f)| {
-            let mut line = format!("{}  {}  {}  {}", i + 1, f.id, f.name, f.path.display());
+            let mut line = format!(
+                "{}  {}  {}  {}",
+                i + 1,
+                printable(&f.id),
+                printable(&f.name),
+                printable(&f.path.display().to_string())
+            );
             if let Some(p) = &f.profile {
-                line.push_str(&format!("  profile: {p}"));
+                line.push_str(&format!("  profile: {}", printable(p)));
             }
             if let Some(c) = &f.command {
-                line.push_str(&format!("  command: {c}"));
+                line.push_str(&format!("  command: {}", printable(c)));
             }
             if !f.path.is_dir() {
                 line.push_str("  (missing)");
@@ -275,6 +288,20 @@ fn list_text(favs: &Favorites) -> String {
         })
         .collect::<Vec<_>>()
         .join("\n")
+}
+
+/// Text from the file made safe for a terminal: control characters are escaped, so a
+/// hand-edited file can't send escape sequences through `list`.
+fn printable(s: &str) -> String {
+    s.chars()
+        .map(|c| {
+            if c.is_control() {
+                c.escape_default().to_string()
+            } else {
+                c.to_string()
+            }
+        })
+        .collect()
 }
 
 #[cfg(test)]
@@ -493,6 +520,35 @@ mod tests {
         let r = fx.run(&["path"]);
         assert_eq!(r.code, 0);
         assert_eq!(r.out.trim(), fx.store.path.display().to_string());
+    }
+
+    #[test]
+    fn help_prints_usage_and_succeeds() {
+        let fx = Fixture::new("cli-help");
+        for flag in ["--help", "-h", "help"] {
+            let r = fx.run(&[flag]);
+            assert_eq!(r.code, 0);
+            assert!(r.out.contains("usage: vtt favorites"));
+        }
+    }
+
+    #[test]
+    fn list_escapes_control_characters_from_the_file() {
+        let fx = Fixture::new("cli-escape");
+        std::fs::create_dir_all(fx.store.path.parent().unwrap()).unwrap();
+        std::fs::write(
+            &fx.store.path,
+            "version = 1\n[[favorite]]\nid = \"f1\"\nname = \"x\"\n\
+             path = \"/tmp/\\u001b[2J\"\nprofile = \"\\u001b]0;t\\u0007\"\n\
+             command = \"ls\\nrm\"\n",
+        )
+        .unwrap();
+        let r = fx.run(&["list"]);
+        assert_eq!(r.code, 0);
+        assert!(!r.out.contains('\u{1b}'), "{:?}", r.out);
+        assert!(r.out.contains("\\u{1b}[2J"), "{:?}", r.out);
+        assert!(!r.out.contains("command:"), "{:?}", r.out);
+        assert!(r.err.contains("warning"), "{:?}", r.err);
     }
 
     #[test]

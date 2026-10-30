@@ -70,6 +70,8 @@ pub struct Favorites {
     pub list: Vec<Favorite>,
     /// Number used for the next id, so removed ids are never handed out again.
     next_id: u64,
+    /// What loading had to fix in a hand-edited file (shown as warnings).
+    pub problems: Vec<String>,
 }
 
 /// On-disk form.
@@ -106,9 +108,12 @@ impl Favorites {
             .filter_map(|f| f.id.strip_prefix('f')?.parse::<u64>().ok())
             .max()
             .unwrap_or(0);
+        let mut favorites = data.favorites;
+        let problems = favorites.iter_mut().filter_map(sanitize).collect();
         Ok(Self {
-            list: data.favorites,
+            list: favorites,
             next_id: data.next_id.max(max + 1).max(1),
+            problems,
         })
     }
 
@@ -244,7 +249,8 @@ impl Favorites {
 
     /// Check a draft and normalize it: trimmed name, canonical path, empty profile and
     /// command turned into `None`. `except` is the favorite being edited (its own path isn't
-    /// a duplicate).
+    /// a duplicate, and an unchanged path isn't required to exist, so a favorite whose
+    /// directory is gone for now can still be renamed or get its command fixed).
     fn validate(
         &self,
         draft: Draft,
@@ -258,7 +264,12 @@ impl Favorites {
         if name.chars().any(char::is_control) {
             return Err("the name must be one line, without control characters".into());
         }
-        let path = canonical_dir(&draft.path)?;
+        let unchanged = except.is_some_and(|i| self.list[i].path == draft.path);
+        let path = if unchanged {
+            draft.path
+        } else {
+            canonical_dir(&draft.path)?
+        };
         if let Some((i, other)) = self
             .list
             .iter()
@@ -298,6 +309,26 @@ impl Favorites {
     }
 }
 
+/// Make a favorite read from the file safe to show and type: control characters in its
+/// name become U+FFFD, and a command that isn't one plain line is dropped. Returns what was
+/// fixed.
+fn sanitize(f: &mut Favorite) -> Option<String> {
+    let mut fixed = Vec::new();
+    if f.name.chars().any(char::is_control) {
+        f.name = f
+            .name
+            .chars()
+            .map(|c| if c.is_control() { '\u{FFFD}' } else { c })
+            .collect();
+        fixed.push("its name had control characters (replaced)".to_string());
+    }
+    if let Some(err) = f.command.as_deref().and_then(|c| check_command(c).err()) {
+        f.command = None;
+        fixed.push(format!("its command was ignored: {err}"));
+    }
+    (!fixed.is_empty()).then(|| format!("favorite `{}` ({}): {}", f.name, f.id, fixed.join("; ")))
+}
+
 /// A command must be one line with no control characters (newlines, carriage returns,
 /// ESC, …), so typing it sends exactly one Enter.
 pub fn check_command(command: &str) -> Result<(), String> {
@@ -314,7 +345,7 @@ pub fn check_command(command: &str) -> Result<(), String> {
 /// `path` made absolute and canonical; it must be an existing directory.
 fn canonical_dir(path: &Path) -> Result<PathBuf, String> {
     let expanded = expand_tilde(path);
-    match std::fs::canonicalize(&expanded) {
+    match std::fs::canonicalize(&expanded).map(simplify) {
         Ok(p) if p.is_dir() => Ok(p),
         Ok(p) => Err(format!("{} is not a directory", p.display())),
         Err(_) => Err(format!("{} doesn't exist", expanded.display())),
@@ -323,7 +354,32 @@ fn canonical_dir(path: &Path) -> Result<PathBuf, String> {
 
 /// Two favorite paths name the same directory (the stored one may have gone missing).
 fn same_dir(stored: &Path, canonical: &Path) -> bool {
-    std::fs::canonicalize(stored).unwrap_or_else(|_| stored.to_path_buf()) == canonical
+    std::fs::canonicalize(stored)
+        .map(simplify)
+        .unwrap_or_else(|_| stored.to_path_buf())
+        == canonical
+}
+
+/// A canonical path in the form shells and people use. On Windows `canonicalize` returns
+/// verbatim paths (`\\?\C:\x`), which cmd.exe refuses as a working directory.
+fn simplify(path: PathBuf) -> PathBuf {
+    match path.to_str() {
+        Some(s) => PathBuf::from(strip_verbatim(s)),
+        None => path,
+    }
+}
+
+/// `\\?\C:\x` → `C:\x`, `\\?\UNC\server\share` → `\\server\share`; anything else as is.
+fn strip_verbatim(path: &str) -> String {
+    if let Some(rest) = path.strip_prefix(r"\\?\UNC\") {
+        format!(r"\\{rest}")
+    } else if let Some(rest) = path.strip_prefix(r"\\?\")
+        && rest.as_bytes().get(1) == Some(&b':')
+    {
+        rest.to_string()
+    } else {
+        path.to_string()
+    }
 }
 
 /// `~` or `~/…` with the home directory filled in.
@@ -371,6 +427,7 @@ impl Store {
         match std::fs::read_to_string(&self.path) {
             Ok(text) => Favorites::parse(&text)
                 .map_err(|e| format!("invalid favorites file {}: {e}", self.path.display())),
+            // (The app matches that prefix to clear the banner once the file is fixed.)
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(Favorites::default()),
             Err(e) => Err(format!("can't read {}: {e}", self.path.display())),
         }
@@ -622,6 +679,52 @@ pub(crate) mod tests {
                 .is_err()
         );
         assert_eq!(std::fs::read_to_string(&store.path).unwrap(), before);
+    }
+
+    #[test]
+    fn strips_windows_verbatim_prefixes() {
+        assert_eq!(strip_verbatim(r"\\?\C:\Users\me\api"), r"C:\Users\me\api");
+        assert_eq!(
+            strip_verbatim(r"\\?\UNC\server\share\x"),
+            r"\\server\share\x"
+        );
+        // Verbatim paths that aren't a drive (devices, volume GUIDs) keep their prefix.
+        assert_eq!(strip_verbatim(r"\\?\Volume{1234}\x"), r"\\?\Volume{1234}\x");
+        assert_eq!(strip_verbatim("/srv/api"), "/srv/api");
+        assert_eq!(strip_verbatim(r"C:\x"), r"C:\x");
+    }
+
+    #[test]
+    fn hand_edited_control_characters_never_load() {
+        let text = "version = 1\n\
+            [[favorite]]\nid = \"f1\"\nname = \"ok\"\npath = \"/x\"\ncommand = \"make\\nrm -rf ~\"\n\
+            [[favorite]]\nid = \"f2\"\nname = \"red\\u001b[31m\"\npath = \"/y\"\ncommand = \"ls\\u001b[2J\"\n\
+            [[favorite]]\nid = \"f3\"\nname = \"fine\"\npath = \"/z\"\ncommand = \"k9s\"\n";
+        let favs = Favorites::parse(text).unwrap();
+        // The other favorites still load; only the bad parts are dropped.
+        assert_eq!(favs.list.len(), 3);
+        assert_eq!(favs.list[0].command, None);
+        assert_eq!(favs.list[1].command, None);
+        assert_eq!(favs.list[1].name, "red\u{FFFD}[31m");
+        assert_eq!(favs.list[2].command.as_deref(), Some("k9s"));
+        assert_eq!(favs.problems.len(), 2);
+        assert!(favs.problems[0].contains("f1"), "{:?}", favs.problems);
+        assert!(
+            favs.list
+                .iter()
+                .all(|f| !f.name.chars().any(char::is_control))
+        );
+    }
+
+    #[test]
+    fn a_missing_directory_can_still_be_edited() {
+        let (root, mut favs) = sample();
+        std::fs::remove_dir(root.join("a")).unwrap();
+        favs.set(0, Field::Command, Some("htop"), &[]).unwrap();
+        favs.set(0, Field::Name, Some("gone"), &[]).unwrap();
+        // Changing the path still requires the new one to exist.
+        let missing = root.join("nowhere").display().to_string();
+        assert!(favs.set(0, Field::Path, Some(&missing), &[]).is_err());
     }
 
     #[test]

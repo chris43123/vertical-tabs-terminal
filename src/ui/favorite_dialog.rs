@@ -63,7 +63,8 @@ impl App {
             return;
         };
         let (mut save, mut cancel) = (false, false);
-        if dialog.initialized {
+        // While the profile list is open, Enter and Esc belong to it.
+        if dialog.initialized && !ctx.any_popup_open() {
             ctx.input_mut(|i| {
                 save = i.consume_key(Modifiers::NONE, Key::Enter);
                 cancel = i.consume_key(Modifiers::NONE, Key::Escape);
