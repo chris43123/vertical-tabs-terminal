@@ -253,6 +253,14 @@ pub struct Group {
     pub collapsed: bool,
 }
 
+/// A folder for [`Workspace::restore`] to recreate.
+#[derive(Clone, Debug, PartialEq)]
+pub struct FolderSpec {
+    pub name: String,
+    pub color: Option<u8>,
+    pub collapsed: bool,
+}
+
 #[derive(Default, Debug)]
 pub struct Workspace {
     /// Sidebar order of tabs.
@@ -265,6 +273,78 @@ pub struct Workspace {
 }
 
 impl Workspace {
+    /// Rebuild a workspace from saved parts (session restore). `tabs` is the sidebar order,
+    /// each tab with the index of its folder in `folders`. Leaves of `views` that aren't in
+    /// `tabs`, appear twice in one view or already belong to an earlier view are dropped, a
+    /// tab left without a view gets its own, and folders without tabs are dropped. `active`
+    /// indexes `views`; when that view didn't survive, the first view is shown.
+    pub fn restore(
+        tabs: &[(TabId, Option<usize>)],
+        folders: &[FolderSpec],
+        views: Vec<View>,
+        active: usize,
+    ) -> Self {
+        let mut w = Self::default();
+        for &(id, folder) in tabs {
+            if w.order.contains(&id) {
+                continue;
+            }
+            w.order.push(id);
+            if let Some(f) = folder.filter(|f| *f < folders.len()) {
+                w.group_of.insert(id, f as GroupId + 1);
+            }
+        }
+        w.groups = folders
+            .iter()
+            .enumerate()
+            .map(|(i, f)| Group {
+                id: i as GroupId + 1,
+                name: f.name.clone(),
+                color: f.color,
+                collapsed: f.collapsed,
+            })
+            .collect();
+        w.next_group = folders.len() as GroupId;
+
+        let mut used: Vec<TabId> = Vec::new();
+        let mut shown = None;
+        for (vi, view) in views.into_iter().enumerate() {
+            let leaves = view.root.leaves();
+            let mut root = Some(view.root);
+            for &leaf in &leaves {
+                let twice = leaves.iter().filter(|l| **l == leaf).count() > 1;
+                if twice || !w.order.contains(&leaf) || used.contains(&leaf) {
+                    root = root.and_then(|r| r.remove(leaf));
+                }
+            }
+            let Some(root) = root else { continue };
+            let kept = root.leaves();
+            let focused = if kept.contains(&view.focused) {
+                view.focused
+            } else {
+                kept[0]
+            };
+            used.extend(&kept);
+            if vi == active {
+                shown = Some(w.views.len());
+            }
+            w.views.push(View {
+                root,
+                focused,
+                name: view.name,
+            });
+        }
+        for &id in &w.order {
+            if !used.contains(&id) {
+                w.views.push(View::single(id));
+            }
+        }
+        w.active = shown.unwrap_or(0);
+        w.prune_groups();
+        w.normalize_order();
+        w
+    }
+
     pub fn view_of(&self, id: TabId) -> Option<usize> {
         self.views.iter().position(|v| v.root.contains(id))
     }
@@ -848,5 +928,81 @@ mod tests {
         assert_eq!(w.members(g), vec![1, 4, 2]);
         w.move_to(1, 4, None);
         assert_eq!(w.order, vec![4, 2, 3, 1]);
+    }
+
+    #[test]
+    fn restore_rebuilds_folders_splits_and_focus() {
+        let folders = [
+            FolderSpec {
+                name: "work".into(),
+                color: Some(2),
+                collapsed: true,
+            },
+            FolderSpec {
+                name: "empty".into(),
+                color: None,
+                collapsed: false,
+            },
+        ];
+        let mut split = Node::Leaf(1);
+        split.insert(1, 2, Edge::Bottom);
+        split.set_ratio(&[], 0.25);
+        let views = vec![
+            View {
+                root: Node::Leaf(3),
+                focused: 3,
+                name: None,
+            },
+            View {
+                root: split.clone(),
+                focused: 2,
+                name: Some("pair".into()),
+            },
+        ];
+        let w = Workspace::restore(&[(1, Some(0)), (2, Some(0)), (3, None)], &folders, views, 1);
+        assert_eq!(w.order, vec![1, 2, 3]);
+        assert_eq!(w.views.len(), 2);
+        assert_eq!(w.active_view().unwrap().root, split);
+        assert_eq!(w.focused(), Some(2));
+        assert_eq!(w.active_view().unwrap().name.as_deref(), Some("pair"));
+        // The folder with no tabs is dropped; the other keeps its look.
+        assert_eq!(w.groups.len(), 1);
+        let g = w.group(w.group_of(1).unwrap()).unwrap();
+        assert_eq!(
+            (g.name.as_str(), g.color, g.collapsed),
+            ("work", Some(2), true)
+        );
+        assert_eq!(w.group_of(3), None);
+        // New folders don't reuse a restored id.
+        let mut w = w;
+        let g2 = w.new_group(3, "new".into()).unwrap();
+        assert_ne!(Some(g2), w.group_of(1));
+    }
+
+    #[test]
+    fn restore_repairs_inconsistent_views() {
+        let mut twice = Node::Leaf(1);
+        twice.insert(1, 9, Edge::Right);
+        let views = vec![
+            View {
+                root: twice,
+                focused: 9,
+                name: None,
+            },
+            // Tab 1 again, in a second view.
+            View {
+                root: Node::Leaf(1),
+                focused: 1,
+                name: None,
+            },
+        ];
+        let w = Workspace::restore(&[(1, None), (2, Some(7))], &[], views, 5);
+        // 9 isn't a tab; 1 stays in its first view; 2 gets its own; bad indices are ignored.
+        assert_eq!(w.views.len(), 2);
+        assert_eq!(w.views[0].root, Node::Leaf(1));
+        assert_eq!(w.views[0].focused, 1);
+        assert_eq!(w.view_of(2), Some(1));
+        assert_eq!(w.active, 0);
+        assert!(w.groups.is_empty());
     }
 }

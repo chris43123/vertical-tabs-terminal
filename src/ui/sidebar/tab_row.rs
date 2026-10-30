@@ -100,7 +100,7 @@ impl App {
         let icon_rect = Rect::from_center_size(icon_center, vec2(22.0, 22.0));
         let icon = match &tab.content {
             Content::Term(_) => crate::ui::icons::icon_for(tab.process.as_deref()),
-            Content::Preview(_) => None,
+            Content::Preview(_) | Content::Dormant => None,
         };
         let profile_color = tab
             .profile
@@ -113,7 +113,14 @@ impl App {
             }
             None => (tab.profile.icon.clone(), None),
         };
+        // A restored tab whose shell hasn't started yet is drawn faded into the sidebar.
+        let dormant = tab.is_dormant();
         let fill = color.unwrap_or(profile_color);
+        let fill = if dormant {
+            mix(fill, c.sidebar, 0.5)
+        } else {
+            fill
+        };
         painter.rect_filled(icon_rect, CornerRadius::same(5), fill);
         painter.text(
             icon_rect.center(),
@@ -123,7 +130,9 @@ impl App {
             c.readable_on(fill),
         );
 
-        let text_color = if focused || in_active {
+        let text_color = if dormant {
+            c.raised_sidebar(0.45)
+        } else if focused || in_active {
             visuals.strong_text_color()
         } else {
             visuals.text_color()
@@ -147,7 +156,7 @@ impl App {
             _ => tab.title().to_string(),
         };
         let (activity, bell) = (tab.activity, tab.bell);
-        let is_term = tab.session().is_some();
+        let is_term = tab.session().is_some() || dormant;
         let tab_dir = tab.dir().map(std::path::Path::to_path_buf);
 
         // Unread / bell badges.

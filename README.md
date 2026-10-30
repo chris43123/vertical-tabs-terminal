@@ -19,6 +19,7 @@ Inspired by Warp, minus the weight: Warp's good ideas (a file tree that follows 
 ## Features
 
 - **Favorites.** Pin the directories you return to above the tabs, each with an optional profile and command (`claude`, `k9s`, `npm run dev`). One click opens it, and from then on the favorite's row *is* that tab. Scripts and AI agents manage the same list with `vtt favorites` (see [Favorites](#favorites)).
+- **Session restore.** Quit and relaunch, and your tabs come back: their order, folders, splits, names, directories and favorite links. Only the tabs on screen start a shell; the rest wait, dimmed, until you open them, so a big session costs nothing at launch (see [Session restore](#session-restore)).
 - **Vertical tabs.** The sidebar can be collapsed to an icon strip, or hidden entirely (zen mode, `Ctrl+B`) and peeked by hovering the left window edge (`Ctrl+\` in zen mode switches the peek between tabs and files).
 - **Folders.** Group tabs into named, colored folders that collapse, Zen-style (see [Folders](#folders)).
 - **Files panel.** A file tree of the focused shell's directory sits between the tabs and the terminals, and follows you as you `cd` (see [Files and previews](#files-and-previews)).
@@ -180,6 +181,33 @@ The list lives in its own file, per machine, not in the config:
 - Windows: `%APPDATA%\vtt\favorites.toml`
 
 It's plain TOML (`[[favorite]]` tables), so you can edit it by hand too. vtt and the CLI write it atomically and re-read it before every change, so neither overwrites the other's edits. A favorite's command is typed into a shell, so anything that can write this file can run commands as you, just like your shell's rc files. vtt only types one line: a hand-edited command with a line break or another control character (an escape sequence, say) is ignored with a warning, and **dropped from the file the next time vtt or `vtt favorites` writes it**. Control characters in a hand-edited name are replaced the same way.
+
+## Session restore
+
+vtt saves the open tabs a couple of seconds after the layout changes and when it quits, and brings them back at the next launch (`restore_session = true`, the default):
+
+- Tab order, folders (name, color, collapsed), split views with their proportions and names, the focused pane and the view on screen, tab names, each tab's last directory, the command it was opened with, and which favorite it belongs to.
+- Only the panes on screen start their shell at launch. Every other tab comes back **dormant**: dimmed in the sidebar, no process behind it, and a favorite's dot shows no session. Showing it any way (a click, the switcher, next/previous tab, a favorite, dropping it into a split) starts its shell in its saved directory and types its command. Reset on a dormant tab just starts it; closing one just removes it.
+- Not restored: scrollback, running programs (a restored tab starts a fresh shell), file previews and the settings tab.
+- If a tab's profile no longer exists, it opens the default profile without its command, with a warning. A directory that's gone becomes the profile's directory, else home. A link to a removed favorite is dropped. A session file that can't be read is moved to `session.toml.bad` with a warning, and vtt starts fresh.
+- With `restore_session = false`, vtt neither reads nor writes the session file (an existing one is left alone).
+
+The file is `session.toml` next to `favorites.toml` (see [Favorites](#favorites) for the folder). With several vtt windows open, the last one to save wins.
+
+### From the command line
+
+`vtt session` reads the saved session, for scripts and agents:
+
+```sh
+vtt session show          # one line per tab: position, * for the focused one, title, profile,
+                          # directory, command, folder, favorite, split
+vtt session show --json   # {"active": n, "tabs": [{position, active, title, profile, dir,
+                          #   command, folder, favorite, split}], "folders": [{position, name, color, collapsed}]}
+vtt session clear         # forget it (quit vtt first: a running vtt saves it again)
+vtt session path          # where the file lives
+```
+
+A running vtt doesn't watch the file: it mirrors what's open, and its next save overwrites a change made from outside. With no file, `show` prints an empty session. Exit codes: 0 ok, 1 error (an unreadable file, with what to do), 2 bad usage (prints the usage).
 
 ## Installing
 
@@ -347,6 +375,11 @@ bell = "badge"
 # Ask before "Reset tab" kills a program running in the tab (vim, a build, ssh...).
 # Resetting a tab that is just at its prompt never asks. Windows never asks.
 confirm_reset = true
+
+# Bring back the tabs from last time at launch: order, folders, splits, names and
+# directories. Only the tabs on screen start a shell; the others start when you open them.
+# Running programs and scrollback aren't restored. Off: no session file is read or written.
+restore_session = true
 
 [font]
 # Font family; defaults to the system monospace font.

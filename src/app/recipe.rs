@@ -22,6 +22,8 @@ pub struct LaunchRecipe {
     /// The favorite it was opened from. While that favorite exists, Reset starts from the
     /// favorite's current recipe instead of this one.
     pub favorite: Option<FavId>,
+    /// Left out of the saved session (the settings editor: its program isn't a profile).
+    pub ephemeral: bool,
 }
 
 impl LaunchRecipe {
@@ -34,6 +36,7 @@ impl LaunchRecipe {
             command: None,
             custom_title: None,
             favorite: None,
+            ephemeral: false,
         }
     }
 

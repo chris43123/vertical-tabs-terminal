@@ -233,7 +233,7 @@ impl App {
         };
         let c = &self.chrome;
         let visuals = ui.visuals();
-        let status = self.favorites.status(id);
+        let status = self.favorite_status(id);
         let missing = self.favorites.is_missing(id);
         let open = tab.and_then(|t| self.tabs.get(&t));
         let focused = tab.is_some() && tab == self.ws.focused();

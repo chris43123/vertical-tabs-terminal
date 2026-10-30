@@ -168,7 +168,8 @@ impl App {
             color: None,
         };
         let cwd = path.parent().map(PathBuf::from);
-        let recipe = super::LaunchRecipe::new(profile, cwd).with_title(Some("Settings".into()));
+        let mut recipe = super::LaunchRecipe::new(profile, cwd).with_title(Some("Settings".into()));
+        recipe.ephemeral = true;
         self.spawn_tab(recipe, None);
     }
 

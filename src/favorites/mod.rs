@@ -424,33 +424,9 @@ impl Store {
         Ok((out, favorites))
     }
 
-    /// Write atomically: a temp file in the same directory, then a rename over the old one,
-    /// so readers see the old file or the new one, never half of it.
+    /// Write the file atomically (see [`crate::fsutil::write_atomic`]).
     fn save(&self, favorites: &Favorites) -> Result<(), String> {
-        use std::io::Write as _;
-        let fail = |e: std::io::Error| format!("can't write {}: {e}", self.path.display());
-        let dir = self.path.parent().unwrap_or(Path::new("."));
-        std::fs::create_dir_all(dir).map_err(fail)?;
-        let tmp = self.temp_path();
-        let written = std::fs::File::create(&tmp).and_then(|mut f| {
-            f.write_all(favorites.to_toml().as_bytes())?;
-            f.sync_all()
-        });
-        if let Err(e) = written.and_then(|()| std::fs::rename(&tmp, &self.path)) {
-            let _ = std::fs::remove_file(&tmp);
-            return Err(fail(e));
-        }
-        Ok(())
-    }
-
-    fn temp_path(&self) -> PathBuf {
-        let name = self
-            .path
-            .file_name()
-            .map(|n| n.to_string_lossy().into_owned())
-            .unwrap_or_else(|| "favorites.toml".into());
-        self.path
-            .with_file_name(format!(".{name}.{}.tmp", std::process::id()))
+        crate::fsutil::write_atomic(&self.path, &favorites.to_toml())
     }
 }
 
@@ -650,7 +626,7 @@ pub(crate) mod tests {
                 .update(|f| f.set(0, Field::Command, Some("a\nb"), &[]))
                 .is_err()
         );
-        std::fs::create_dir(store.temp_path()).unwrap();
+        std::fs::create_dir(crate::fsutil::temp_path(&store.path)).unwrap();
         assert!(
             store
                 .update(|f| f.set(0, Field::Name, Some("blocked"), &[]))

@@ -11,6 +11,7 @@ mod files;
 mod input;
 mod previews;
 mod recipe;
+mod session;
 mod side;
 mod tab;
 mod tabs;
@@ -123,6 +124,8 @@ pub struct App {
     pub previews: Previews,
     /// The "Copied …" note, while it is shown.
     pub toast: Option<crate::ui::Toast>,
+    /// The saved session, and whether a save is due.
+    session: session::SessionState,
 }
 
 impl App {
@@ -209,9 +212,12 @@ impl App {
             last_cwd_check: Instant::now(),
             previews,
             toast: None,
+            session: session::SessionState::new(),
         };
         app.warn_unknown_profiles();
-        app.new_tab(0, None);
+        if !app.restore_session() {
+            app.new_tab(0, None);
+        }
         app
     }
 
@@ -287,7 +293,14 @@ impl eframe::App for App {
         false
     }
 
+    /// A normal quit saves the session exactly (a crash loses at most the last debounce).
+    fn on_exit(&mut self) {
+        self.refresh_cwds();
+        self.save_session();
+    }
+
     fn save(&mut self, storage: &mut dyn eframe::Storage) {
+        self.save_session();
         eframe::set_value(
             storage,
             UI_ZOOM_KEY,
@@ -356,6 +369,7 @@ impl eframe::App for App {
                 self.files_panel(ui);
             }
         }
+        self.wake_visible();
         self.panes(ui);
         self.sync_favorite_order_on_change();
         self.switcher_ui(&ctx);
@@ -367,5 +381,7 @@ impl eframe::App for App {
         self.track_focus();
         self.hide_pointer_while_typing(&ctx);
         self.update_window_title();
+        self.wake_visible();
+        self.session_tick();
     }
 }

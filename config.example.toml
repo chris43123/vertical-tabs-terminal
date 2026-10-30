@@ -71,6 +71,11 @@ copy_on_select = false
 # Resetting a tab that is just at its prompt never asks. Windows never asks.
 confirm_reset = true
 
+# Bring back the tabs from last time at launch: order, folders, splits, names and
+# directories. Only the tabs on screen start a shell; the others start when you open them.
+# Running programs and scrollback aren't restored. Off: no session file is read or written.
+restore_session = true
+
 [font]
 # Font family; defaults to the system monospace font.
 # family = "JetBrains Mono"

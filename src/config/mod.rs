@@ -60,6 +60,8 @@ pub struct Config {
     pub copy_on_select: bool,
     /// Ask before resetting a tab that is running something other than its idle shell.
     pub confirm_reset: bool,
+    /// Save the open tabs and bring them back at the next launch.
+    pub restore_session: bool,
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize, Serialize)]
@@ -186,6 +188,7 @@ impl Default for Config {
             hide_pointer_when_typing: true,
             copy_on_select: false,
             confirm_reset: true,
+            restore_session: true,
         }
     }
 }

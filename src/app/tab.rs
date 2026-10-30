@@ -14,6 +14,9 @@ use super::recipe::LaunchRecipe;
 pub enum Content {
     Term(Session),
     Preview(Box<Preview>),
+    /// A restored tab whose shell hasn't started yet: it starts from the tab's recipe the
+    /// first time the tab is shown.
+    Dormant,
 }
 
 /// Bounds of a pane's font size in points.
@@ -76,35 +79,39 @@ impl Tab {
     pub fn session(&self) -> Option<&Session> {
         match &self.content {
             Content::Term(s) => Some(s),
-            Content::Preview(_) => None,
+            _ => None,
         }
     }
 
     pub fn session_mut(&mut self) -> Option<&mut Session> {
         match &mut self.content {
             Content::Term(s) => Some(s),
-            Content::Preview(_) => None,
+            _ => None,
         }
     }
 
     pub fn preview(&self) -> Option<&Preview> {
         match &self.content {
             Content::Preview(p) => Some(p),
-            Content::Term(_) => None,
+            _ => None,
         }
     }
 
     pub fn preview_mut(&mut self) -> Option<&mut Preview> {
         match &mut self.content {
             Content::Preview(p) => Some(p),
-            Content::Term(_) => None,
+            _ => None,
         }
+    }
+
+    pub fn is_dormant(&self) -> bool {
+        matches!(self.content, Content::Dormant)
     }
 
     /// Directory the tab is "in": the shell's cwd, or a previewed file's folder.
     pub fn dir(&self) -> Option<&Path> {
         match &self.content {
-            Content::Term(_) => self.cwd.as_deref(),
+            Content::Term(_) | Content::Dormant => self.cwd.as_deref(),
             Content::Preview(p) => p.path.parent(),
         }
     }

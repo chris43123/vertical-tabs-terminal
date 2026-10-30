@@ -11,11 +11,13 @@
 //!   previews with syntax highlighting.
 //! - [`favorites`]: the favorites file (pinned directories with a profile and command) and
 //!   the `vtt favorites` CLI.
+//! - [`session`]: the saved session (tabs, folders and splits restored at launch) and the
+//!   `vtt session` CLI.
 //! - [`render`]: glyph atlas and per-pane meshes for terminal grids.
 //! - [`app`]: the application state and its behavior; it owns everything above.
 //! - [`ui`]: the egui chrome, drawn from `App` each frame.
 //!
-//! [`diag`], [`fuzzy`] and [`platform`] are small helpers shared across these.
+//! [`diag`], [`fsutil`], [`fuzzy`] and [`platform`] are small helpers shared across these.
 
 #![cfg_attr(all(windows, not(debug_assertions)), windows_subsystem = "windows")]
 
@@ -24,10 +26,12 @@ mod config;
 mod diag;
 mod favorites;
 mod files;
+mod fsutil;
 mod fuzzy;
 mod platform;
 mod preview;
 mod render;
+mod session;
 mod terminal;
 mod theme;
 mod ui;
@@ -39,6 +43,9 @@ fn main() -> eframe::Result {
         std::process::exit(code);
     }
     if let Some(code) = favorites::cli::run_cli(&args) {
+        std::process::exit(code);
+    }
+    if let Some(code) = session::cli::run_cli(&args) {
         std::process::exit(code);
     }
     let config = config::Config::load();

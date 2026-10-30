@@ -69,7 +69,7 @@ impl App {
     }
 
     /// Start `recipe`'s shell for tab `id`, with a new generation.
-    fn start_session(
+    pub(super) fn start_session(
         &mut self,
         id: TabId,
         recipe: &LaunchRecipe,
@@ -102,6 +102,10 @@ impl App {
         let Some(tab) = self.tabs.get(&id) else {
             return;
         };
+        // A dormant tab has nothing running to lose: resetting it just starts it.
+        if tab.is_dormant() {
+            return self.wake(id);
+        }
         let Some(session) = tab.session().filter(|_| tab.recipe.is_some()) else {
             return;
         };
@@ -128,6 +132,9 @@ impl App {
         let Some(tab) = self.tabs.get(&id) else {
             return;
         };
+        if tab.is_dormant() {
+            return self.wake(id);
+        }
         let (Some(recipe), Some(size)) = (tab.recipe.clone(), tab.session().map(|s| s.size)) else {
             return;
         };

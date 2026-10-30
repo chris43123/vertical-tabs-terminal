@@ -166,6 +166,13 @@ pub const OPTIONS: &[Opt] = &[
         "Ask before \"Reset tab\" kills a program running in the tab (never asked on Windows, where vtt can't tell).",
     ),
     opt(
+        "restore_session",
+        "bool",
+        "",
+        None,
+        "Save the open tabs (folders, splits, names, directories) and bring them back at launch; only the shown tabs start their shell until you open the others. Off: nothing is saved or restored, and an existing session file is left alone.",
+    ),
+    opt(
         "font.family",
         "string",
         "an installed font family",
@@ -794,6 +801,7 @@ mod tests {
         assert_eq!(v("scrollback", "500").unwrap(), "500");
         assert_eq!(v("font.size", "16").unwrap(), "16.0");
         assert_eq!(v("reduce_motion", "true").unwrap(), "true");
+        assert_eq!(v("restore_session", "false").unwrap(), "false");
         assert_eq!(v("editor", "code --wait").unwrap(), "\"code --wait\"");
         assert!(v("scrollback", "lots").is_err());
         assert!(v("font.size", "100").is_err());
@@ -823,5 +831,6 @@ mod tests {
         assert!(md.contains("`goto_tab_9`"));
         assert!(md.contains("`open_favorite_9`"));
         assert!(md.contains("`add_favorite`"));
+        assert!(md.contains("| `restore_session` | bool | `true` |"));
     }
 }
