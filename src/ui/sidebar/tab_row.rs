@@ -13,7 +13,6 @@ use crate::theme::mix;
 use crate::ui::icons::Icon;
 use crate::workspace::{GroupId, TabId};
 
-use super::folder::paint_folder_icon;
 use super::{Action, FOLDER_INDENT, ROW_HEIGHT};
 
 impl App {
@@ -77,24 +76,16 @@ impl App {
         };
         painter.rect_filled(rect, CornerRadius::same(6), bg);
 
-        // Split group bracket joining adjacent members.
+        // Split bracket joining the view's header and its members.
         if in_split {
             let same = |j: Option<&TabId>| j.is_some_and(|t| self.ws.view_of(*t) == view);
-            let top = if same(index.checked_sub(1).and_then(|j| order.get(j))) {
-                rect.top() - 2.0
-            } else {
-                rect.top() + 5.0
-            };
+            let top = rect.top() - 2.0;
             let bottom = if same(order.get(index + 1)) {
                 rect.bottom() + 2.0
             } else {
                 rect.bottom() - 5.0
             };
-            let color = if in_active {
-                self.chrome.accent
-            } else {
-                mix(c.accent, c.sidebar, 0.5)
-            };
+            let color = view.map_or(c.accent, |v| self.view_color(v));
             painter.rect_filled(
                 Rect::from_min_max(pos2(rect.left(), top), pos2(rect.left() + 3.0, bottom)),
                 CornerRadius::same(2),
@@ -110,11 +101,7 @@ impl App {
         };
         let icon_rect = Rect::from_center_size(icon_center, vec2(22.0, 22.0));
         let icon = match &tab.content {
-            Content::Term(_) => crate::ui::icons::icon_for(
-                tab.process.as_deref(),
-                tab.cwd.as_deref(),
-                dirs::home_dir().as_deref(),
-            ),
+            Content::Term(_) => crate::ui::icons::icon_for(tab.process.as_deref()),
             Content::Preview(_) => None,
         };
         let profile_color = tab
@@ -122,41 +109,45 @@ impl App {
             .color
             .map(|[r, g, b]| Color32::from_rgb(r, g, b))
             .unwrap_or(c.raised_sidebar(0.28));
-        match icon {
-            Some(Icon::Folder(initial)) => {
-                paint_folder_icon(
-                    &painter,
-                    icon_rect,
-                    &initial,
-                    profile_color,
-                    c.readable_on(profile_color),
-                );
+        let (label, color) = match icon {
+            Some(Icon::Label(label, color)) => {
+                (label, color.map(|[r, g, b]| Color32::from_rgb(r, g, b)))
             }
-            other => {
-                let (label, color) = match other {
-                    Some(Icon::Label(label, color)) => {
-                        (label, color.map(|[r, g, b]| Color32::from_rgb(r, g, b)))
-                    }
-                    _ => (tab.profile.icon.clone(), None),
-                };
-                let fill = color.unwrap_or(profile_color);
-                painter.rect_filled(icon_rect, CornerRadius::same(5), fill);
-                painter.text(
-                    icon_rect.center(),
-                    Align2::CENTER_CENTER,
-                    label,
-                    FontId::monospace(12.0),
-                    c.readable_on(fill),
-                );
-            }
-        }
+            None => (tab.profile.icon.clone(), None),
+        };
+        let fill = color.unwrap_or(profile_color);
+        painter.rect_filled(icon_rect, CornerRadius::same(5), fill);
+        painter.text(
+            icon_rect.center(),
+            Align2::CENTER_CENTER,
+            label,
+            FontId::monospace(12.0),
+            c.readable_on(fill),
+        );
 
         let text_color = if focused || in_active {
             visuals.strong_text_color()
         } else {
             visuals.text_color()
         };
-        let title = tab.title().to_string();
+        // Under its split view's folder name, a shell's "zsh · …/folder" only needs "zsh".
+        let title = match (view, tab.process.as_deref()) {
+            (Some(v), Some(process))
+                if in_split
+                    && self.ws.views[v].name.is_none()
+                    && tab.custom_title.is_none()
+                    && Some(tab.title()) == tab.auto_title.as_deref()
+                    && self
+                        .view_names
+                        .get(v)
+                        .and_then(Option::as_ref)
+                        .map(|n| n.dir.as_path())
+                        == tab.dir() =>
+            {
+                process.to_string()
+            }
+            _ => tab.title().to_string(),
+        };
         let (activity, bell) = (tab.activity, tab.bell);
 
         // Unread / bell badges.

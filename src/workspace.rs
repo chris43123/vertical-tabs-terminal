@@ -218,6 +218,8 @@ pub struct View {
     pub root: Node,
     /// The pane that receives keyboard input.
     pub focused: TabId,
+    /// Name set by the user for a split view; otherwise the sidebar names it from its folder.
+    pub name: Option<String>,
 }
 
 impl View {
@@ -225,6 +227,7 @@ impl View {
         Self {
             root: Node::Leaf(id),
             focused: id,
+            name: None,
         }
     }
 }
@@ -316,7 +319,14 @@ impl Workspace {
             } else {
                 focused
             };
-            self.views.insert(vi, View { root, focused });
+            self.views.insert(
+                vi,
+                View {
+                    root,
+                    focused,
+                    name: view.name,
+                },
+            );
         } else if self.active > vi || (self.active == vi && self.active >= self.views.len()) {
             self.active = self.active.saturating_sub(1);
         }

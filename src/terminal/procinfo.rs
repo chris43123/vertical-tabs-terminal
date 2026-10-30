@@ -76,7 +76,63 @@ fn process_name(pid: u32) -> Option<String> {
             buf.len() as u32,
         )
     };
-    (len > 0).then(|| String::from_utf8_lossy(&buf[..len as usize]).into_owned())
+    let name = (len > 0).then(|| String::from_utf8_lossy(&buf[..len as usize]).into_owned())?;
+    // proc_name is the executable's file name after symlinks. Some tools install versioned
+    // binaries (Claude Code runs as ~/.local/share/claude/versions/2.1.312), so a name with no
+    // letters says nothing; the name it was started as (`claude`) does.
+    if name.chars().any(char::is_alphabetic) {
+        return Some(name);
+    }
+    Some(argv0(pid).unwrap_or(name))
+}
+
+/// File name of a process's `argv[0]` (without a login shell's leading `-`).
+#[cfg(target_os = "macos")]
+fn argv0(pid: u32) -> Option<String> {
+    use std::ptr::null_mut;
+
+    let mut argmax: libc::c_int = 0;
+    let mut size = std::mem::size_of::<libc::c_int>();
+    let mut mib = [libc::CTL_KERN, libc::KERN_ARGMAX];
+    // SAFETY: `argmax` is a writable c_int and `size` holds its size.
+    let ret = unsafe {
+        libc::sysctl(
+            mib.as_mut_ptr(),
+            2,
+            (&mut argmax as *mut libc::c_int).cast(),
+            &mut size,
+            null_mut(),
+            0,
+        )
+    };
+    if ret != 0 || argmax <= 0 {
+        return None;
+    }
+    let mut buf = vec![0u8; argmax as usize];
+    let mut size = buf.len();
+    let mut mib = [libc::CTL_KERN, libc::KERN_PROCARGS2, pid as libc::c_int];
+    // SAFETY: `buf` is writable for `size` bytes.
+    let ret = unsafe {
+        libc::sysctl(
+            mib.as_mut_ptr(),
+            3,
+            buf.as_mut_ptr().cast(),
+            &mut size,
+            null_mut(),
+            0,
+        )
+    };
+    if ret != 0 {
+        return None;
+    }
+    // Layout: argc (c_int), the executable path, NUL padding, then argv[0], argv[1], ...
+    let rest = buf.get(std::mem::size_of::<libc::c_int>()..size)?;
+    let rest = &rest[rest.iter().position(|&b| b == 0)?..];
+    let rest = &rest[rest.iter().position(|&b| b != 0)?..];
+    let arg0 = &rest[..rest.iter().position(|&b| b == 0).unwrap_or(rest.len())];
+    let arg0 = String::from_utf8_lossy(arg0);
+    let name = Path::new(arg0.trim_start_matches('-')).file_name()?;
+    Some(name.to_string_lossy().into_owned())
 }
 
 #[cfg(target_os = "macos")]
@@ -214,5 +270,16 @@ mod tests {
         let info = query(Some(std::process::id()), -1);
         assert!(info.process.is_some_and(|p| !p.is_empty()));
         assert_eq!(info.cwd, std::env::current_dir().ok());
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn reads_argv0() {
+        let exe = std::env::current_exe().unwrap();
+        let arg0 = argv0(std::process::id()).unwrap();
+        assert_eq!(
+            Some(arg0.as_str()),
+            exe.file_name().and_then(|n| n.to_str())
+        );
     }
 }

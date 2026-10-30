@@ -205,27 +205,3 @@ impl App {
         }
     }
 }
-
-/// A folder shape (body plus tab) holding `initial`, for tabs sitting at a shell prompt.
-pub(super) fn paint_folder_icon(
-    painter: &egui::Painter,
-    rect: Rect,
-    initial: &str,
-    fill: Color32,
-    ink: Color32,
-) {
-    let tab = Rect::from_min_size(rect.left_top() + vec2(0.0, 2.0), vec2(10.0, 6.0));
-    let body = Rect::from_min_max(
-        rect.left_top() + vec2(0.0, 5.0),
-        rect.right_bottom() - vec2(0.0, 1.0),
-    );
-    painter.rect_filled(tab, CornerRadius::same(2), fill);
-    painter.rect_filled(body, CornerRadius::same(4), fill);
-    painter.text(
-        body.center() + vec2(0.0, 1.0),
-        Align2::CENTER_CENTER,
-        initial,
-        FontId::monospace(11.0),
-        ink,
-    );
-}

@@ -123,6 +123,8 @@ pub(super) struct ClosedTab {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum RenameTarget {
     Tab(TabId),
+    /// The split view holding this tab.
+    View(TabId),
     Group(GroupId),
 }
 

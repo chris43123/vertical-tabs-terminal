@@ -1,17 +1,16 @@
-//! Tab icons from what a tab is running: a small dictionary of well-known CLI tools, a folder
-//! with the current directory's initial for plain shells, and the process's first letter for
-//! anything else. Only glyphs egui's bundled fonts have (no Nerd Font needed).
-
-use std::path::Path;
+//! Tab icons from what a tab is running: a small dictionary of well-known CLI tools, a prompt
+//! for plain shells, and the process's first letter for anything else. Only glyphs egui's
+//! bundled fonts have (no Nerd Font needed).
 
 /// What to draw in a tab's icon square.
 #[derive(Clone, Debug, PartialEq)]
 pub enum Icon {
-    /// A folder holding the working directory's initial (`~` for home).
-    Folder(String),
     /// A short label, optionally on a brand color.
     Label(String, Option<[u8; 3]>),
 }
+
+/// Label for a tab sitting at a shell prompt.
+const PROMPT: &str = "›_";
 
 const SHELLS: &[&str] = &[
     "fish",
@@ -99,8 +98,8 @@ const TOOLS: &[Tool] = &[
     (&["tmux", "screen", "zellij"], "T", Some([0x1B, 0xB9, 0x1F])),
 ];
 
-/// The icon for a tab running `process` in `cwd`.
-pub fn icon_for(process: Option<&str>, cwd: Option<&Path>, home: Option<&Path>) -> Option<Icon> {
+/// The icon for a tab running `process`.
+pub fn icon_for(process: Option<&str>) -> Option<Icon> {
     let name = normalize(process?);
     if let Some((_, label, color)) = TOOLS
         .iter()
@@ -109,7 +108,7 @@ pub fn icon_for(process: Option<&str>, cwd: Option<&Path>, home: Option<&Path>) 
         return Some(Icon::Label((*label).into(), *color));
     }
     if SHELLS.contains(&name.as_str()) {
-        return Some(Icon::Folder(dir_initial(cwd?, home)));
+        return Some(Icon::Label(PROMPT.into(), None));
     }
     let first = name.chars().find(|c| c.is_alphanumeric())?;
     Some(Icon::Label(first.to_uppercase().to_string(), None))
@@ -128,41 +127,27 @@ fn normalize(process: &str) -> String {
     }
 }
 
-fn dir_initial(cwd: &Path, home: Option<&Path>) -> String {
-    if home == Some(cwd) {
-        return "~".into();
-    }
-    cwd.file_name()
-        .and_then(|n| n.to_string_lossy().chars().find(|c| c.is_alphanumeric()))
-        .map(|c| c.to_uppercase().to_string())
-        .unwrap_or_else(|| "/".into())
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    fn icon(p: &str, cwd: &str) -> Option<Icon> {
-        icon_for(Some(p), Some(Path::new(cwd)), Some(Path::new("/home/u")))
+    fn icon(p: &str) -> Option<Icon> {
+        icon_for(Some(p))
     }
 
     #[test]
-    fn shells_show_the_folder_initial() {
-        assert_eq!(
-            icon("fish", "/home/u/code/vtt"),
-            Some(Icon::Folder("V".into()))
-        );
-        assert_eq!(icon("zsh", "/home/u"), Some(Icon::Folder("~".into())));
-        assert_eq!(icon("bash", "/"), Some(Icon::Folder("/".into())));
-        assert_eq!(icon("pwsh.exe", "/x/ops"), Some(Icon::Folder("O".into())));
+    fn shells_show_a_prompt() {
+        for shell in ["fish", "zsh", "bash", "pwsh.exe"] {
+            assert_eq!(icon(shell), Some(Icon::Label(PROMPT.into(), None)));
+        }
     }
 
     #[test]
     fn known_tools_and_fallback() {
-        assert!(matches!(icon("claude", "/"), Some(Icon::Label(l, Some(_))) if l == "*"));
-        assert!(matches!(icon("python3.12", "/"), Some(Icon::Label(l, _)) if l == "Py"));
-        assert_eq!(icon("btop", "/"), Some(Icon::Label("B".into(), None)));
-        assert_eq!(icon("weirdtool", "/"), Some(Icon::Label("W".into(), None)));
-        assert_eq!(icon_for(None, None, None), None);
+        assert!(matches!(icon("claude"), Some(Icon::Label(l, Some(_))) if l == "*"));
+        assert!(matches!(icon("python3.12"), Some(Icon::Label(l, _)) if l == "Py"));
+        assert_eq!(icon("btop"), Some(Icon::Label("B".into(), None)));
+        assert_eq!(icon("weirdtool"), Some(Icon::Label("W".into(), None)));
+        assert_eq!(icon_for(None), None);
     }
 }

@@ -156,7 +156,7 @@ fn luminance(c: Color32) -> f32 {
 }
 
 /// WCAG contrast ratio (1..=21) between two colors.
-fn contrast_ratio(a: Color32, b: Color32) -> f32 {
+pub(crate) fn contrast_ratio(a: Color32, b: Color32) -> f32 {
     let (la, lb) = (luminance(a), luminance(b));
     (la.max(lb) + 0.05) / (la.min(lb) + 0.05)
 }

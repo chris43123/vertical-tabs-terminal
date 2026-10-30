@@ -63,8 +63,10 @@ pub struct App {
 
     /// Which of the sidebar and files panel are shown.
     pub side: SidePanels,
-    /// Tab or folder currently being renamed, with the edit buffer.
+    /// Tab, split view or folder currently being renamed, with the edit buffer.
     pub renaming: Option<(RenameTarget, String)>,
+    /// Automatic names of the views, by index in `ws.views` (refreshed each sidebar frame).
+    pub view_names: Vec<Option<crate::ui::view_names::ViewName>>,
     /// Pane rects of the active view from the last frame (for directional pane focus).
     pub pane_rects: Vec<(TabId, egui::Rect)>,
     /// Sub-line scroll accumulator in points.
@@ -154,6 +156,7 @@ impl App {
             ctx,
             side,
             renaming: None,
+            view_names: Vec::new(),
             pane_rects: Vec::new(),
             scroll_accum: 0.0,
             pointer_hidden: false,

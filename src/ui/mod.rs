@@ -9,6 +9,7 @@ mod panes;
 mod preview;
 mod sidebar;
 mod switcher;
+pub mod view_names;
 
 use std::path::Path;
 

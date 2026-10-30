@@ -1,9 +1,10 @@
-//! The vertical tab sidebar: tab rows, split groups, folders (Zen-style tab groups), badges,
-//! rename, reorder, drag source, a long-hover card with the tab's cwd, and the collapsed icon
-//! strip that peeks open on hover.
+//! The vertical tab sidebar: tab rows, split views under a named header, folders (Zen-style
+//! tab groups), badges, rename, reorder, drag source, a long-hover card with the tab's cwd,
+//! and the collapsed icon strip that peeks open on hover.
 
 mod folder;
 mod tab_row;
+mod view_row;
 mod zen;
 
 use eframe::egui::{self, CornerRadius, Rect, Sense, Stroke, StrokeKind, Ui, vec2};
@@ -15,6 +16,7 @@ use crate::workspace::{GroupId, TabId};
 const COLLAPSED_WIDTH: f32 = 48.0;
 const ROW_HEIGHT: f32 = 30.0;
 const FOLDER_HEIGHT: f32 = 28.0;
+const VIEW_HEIGHT: f32 = 24.0;
 /// How far a folder's tabs are indented.
 const FOLDER_INDENT: f32 = 12.0;
 /// ANSI colors offered for folders.
@@ -34,6 +36,10 @@ enum Action {
     Minimize(TabId),
     StartRename(RenameTarget),
     CommitRename,
+    /// Go back to the automatic name of the split view holding this tab.
+    ResetViewName(TabId),
+    /// Close every tab of the split view holding this tab.
+    CloseView(TabId),
     NewTab(usize),
     ToggleCollapse,
     /// Move a tab to an index in `order`, inside a folder or outside any.
@@ -56,6 +62,8 @@ enum Action {
 #[derive(Clone, Copy, Debug, PartialEq)]
 enum Row {
     Folder(GroupId),
+    /// Header of a split view, before its first visible tab.
+    View(TabId),
     Tab(TabId),
 }
 
@@ -95,6 +103,7 @@ impl App {
 
     fn sidebar_contents(&mut self, ui: &mut Ui, expanded: bool, actions: &mut Vec<Action>) {
         ui.spacing_mut().item_spacing = vec2(4.0, 2.0);
+        self.refresh_view_names();
 
         // Header: new tab, profile menu, then settings and the collapse toggle on the right.
         let settings_tip = format!(
@@ -166,6 +175,7 @@ impl App {
                 for &row in &rows {
                     let rect = match row {
                         Row::Folder(g) => self.folder_row(ui, g, expanded, actions),
+                        Row::View(id) => self.view_row(ui, id, expanded, actions),
                         Row::Tab(id) => {
                             let i = order.iter().position(|t| *t == id).unwrap_or(0);
                             self.tab_row(ui, id, i, &order, expanded, actions)
@@ -248,10 +258,12 @@ impl App {
         }
     }
 
-    /// Rows to show: folder headers, and tabs (a collapsed folder still shows its active tab).
+    /// Rows to show: folder headers, split view headers, and tabs (a collapsed folder still
+    /// shows its active tab).
     fn sidebar_rows(&self) -> Vec<Row> {
         let mut rows = Vec::new();
         let mut current: Option<GroupId> = None;
+        let mut last_view = None;
         let active = self.ws.visible();
         for &id in &self.ws.order {
             let group = self.ws.group_of(id);
@@ -266,6 +278,11 @@ impl App {
                 .is_some_and(|g| g.collapsed)
                 && !active.contains(&id);
             if !hidden {
+                let view = self.ws.view_of(id);
+                if view != last_view && view.is_some_and(|v| self.ws.views[v].root.is_split()) {
+                    rows.push(Row::View(id));
+                }
+                last_view = view;
                 rows.push(Row::Tab(id));
             }
         }
@@ -276,8 +293,8 @@ impl App {
     fn insertion_target(&self, next: Option<Row>) -> (usize, Option<GroupId>) {
         let index_of = |id: TabId| self.ws.order.iter().position(|t| *t == id).unwrap_or(0);
         match next {
-            // Above a tab: join whatever folder that tab is in.
-            Some(Row::Tab(t)) => (index_of(t), self.ws.group_of(t)),
+            // Above a tab or a split view: join whatever folder that tab is in.
+            Some(Row::Tab(t) | Row::View(t)) => (index_of(t), self.ws.group_of(t)),
             // Above a folder header: just before the folder, outside it.
             Some(Row::Folder(g)) => (self.ws.members(g).first().map_or(0, |&t| index_of(t)), None),
             None => (self.ws.order.len(), None),
@@ -291,6 +308,19 @@ impl App {
             Action::Duplicate(id) => self.duplicate_tab(id),
             Action::Minimize(id) => self.ws.minimize(id),
             Action::StartRename(RenameTarget::Tab(id)) => self.start_rename(id),
+            Action::StartRename(RenameTarget::View(id)) => self.start_view_rename(id),
+            Action::CloseView(id) => {
+                if let Some(v) = self.ws.view_of(id) {
+                    for t in self.ws.views[v].root.leaves() {
+                        self.close_tab(t);
+                    }
+                }
+            }
+            Action::ResetViewName(id) => {
+                if let Some(v) = self.ws.view_of(id) {
+                    self.ws.views[v].name = None;
+                }
+            }
             Action::StartRename(RenameTarget::Group(g)) => {
                 if let Some(group) = self.ws.group(g) {
                     self.renaming = Some((RenameTarget::Group(g), group.name.clone()));
@@ -305,6 +335,13 @@ impl App {
                     if let Some(tab) = self.tabs.get_mut(&id) {
                         let text = text.trim();
                         tab.custom_title = (!text.is_empty()).then(|| text.to_string());
+                    }
+                }
+                Some((RenameTarget::View(id), text)) => {
+                    if let Some(v) = self.ws.view_of(id) {
+                        let text = text.trim();
+                        // Clearing the name goes back to the automatic one.
+                        self.ws.views[v].name = (!text.is_empty()).then(|| text.to_string());
                     }
                 }
                 Some((RenameTarget::Group(g), text)) => {

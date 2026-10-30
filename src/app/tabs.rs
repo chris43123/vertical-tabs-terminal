@@ -5,6 +5,7 @@ use std::path::{Path, PathBuf};
 
 use crate::terminal::profiles::Profile;
 use crate::terminal::session::{GridSize, Listener, Session};
+use crate::ui::view_names::{ViewDirs, auto_names};
 use crate::workspace::{Drop, Edge, GroupId, TabId};
 
 use super::App;
@@ -99,11 +100,9 @@ impl App {
         }
         self.ws.close(id);
         self.tabs.remove(&id);
-        if self
-            .renaming
-            .as_ref()
-            .is_some_and(|(r, _)| *r == RenameTarget::Tab(id))
-        {
+        if self.renaming.as_ref().is_some_and(
+            |(r, _)| matches!(*r, RenameTarget::Tab(t) | RenameTarget::View(t) if t == id),
+        ) {
             self.renaming = None;
         }
         self.scroll_to_focused = true;
@@ -154,6 +153,49 @@ impl App {
             .unwrap_or_default();
         self.renaming = Some((RenameTarget::Tab(id), current));
         self.scroll_to_focused = true;
+        self.side.reveal_sidebar();
+    }
+
+    /// Recompute the automatic names of the split views.
+    pub fn refresh_view_names(&mut self) {
+        let views: Vec<ViewDirs> = self
+            .ws
+            .views
+            .iter()
+            .map(|v| {
+                let leaves = v.root.leaves();
+                ViewDirs {
+                    seed: leaves.iter().copied().min().unwrap_or(0),
+                    dirs: leaves
+                        .iter()
+                        .filter_map(|t| self.tabs.get(t)?.dir())
+                        .collect(),
+                    focused: self.tabs.get(&v.focused).and_then(|t| t.dir()),
+                }
+            })
+            .collect();
+        self.view_names = auto_names(&views, dirs::home_dir().as_deref());
+    }
+
+    /// What the sidebar calls view `v`: the user's name, the automatic one, or the focused
+    /// tab's title when no directory is known.
+    pub fn view_name(&self, v: usize) -> String {
+        let Some(view) = self.ws.views.get(v) else {
+            return String::new();
+        };
+        view.name
+            .clone()
+            .or_else(|| Some(self.view_names.get(v)?.as_ref()?.name.clone()))
+            .or_else(|| Some(self.tabs.get(&view.focused)?.title().to_string()))
+            .unwrap_or_default()
+    }
+
+    /// Start renaming the split view holding `id`.
+    pub fn start_view_rename(&mut self, id: TabId) {
+        let Some(v) = self.ws.view_of(id) else {
+            return;
+        };
+        self.renaming = Some((RenameTarget::View(id), self.view_name(v)));
         self.side.reveal_sidebar();
     }
 
