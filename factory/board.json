@@ -93,6 +93,18 @@
       "decision": "ESCALATE",
       "note": "approved by human",
       "updated": "2026-10-30T20:10:08Z"
+    },
+    {
+      "id": "004-session-restore",
+      "title": "Restore open tabs on launch",
+      "branch": "factory/004-session-restore",
+      "stage": "build",
+      "round": 0,
+      "reviews": {},
+      "history": [],
+      "decision": null,
+      "note": "initial build",
+      "updated": "2026-10-30T21:00:56Z"
     }
   ]
 }
