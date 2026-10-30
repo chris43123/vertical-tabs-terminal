@@ -26,3 +26,11 @@ Manual pass of the round-4 build on macOS: favorite row as its tab, Cmd+R (favor
 3. UI: the collapsed sidebar shows favorites with a different indicator than the expanded sidebar. The human likes the collapsed one: use the same concept for favorites in the expanded sidebar, so both views read the same.
 
 Not answered, so they stay as known non-blocking leftovers: the stale "command dropped" banner, no auto-scroll while dragging, `sync_favorite_order` after a later split, unescaped ids in `diag::warn`.
+
+## 2026-10-30T21:05Z
+
+On top of 71f23fb, fix three of the known leftovers (the fourth, unescaped ids in `diag::warn`, is a non-issue; leave it):
+
+1. A "command dropped" (or other favorites hand-edit) warning in the config banner must go away once the favorites file is fixed and reloads cleanly, like the "invalid favorites file" banner already does.
+2. Dragging a favorite to reorder it in a scrolled favorites section must auto-scroll when the pointer nears the section's top or bottom edge, so it can be dropped anywhere in the list. Keep idle cost at ~0: repaint only while a drag is active.
+3. Keep next/previous tab and "go to tab N" in sidebar order when a tab is split under a favorite later (run `sync_favorite_order`, or equivalent, whenever a tab joins or leaves a favorite's split).

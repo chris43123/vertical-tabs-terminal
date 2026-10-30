@@ -86,7 +86,7 @@
         }
       ],
       "decision": null,
-      "note": "rework from the human (resize reset, split between favorites, expanded indicator)",
+      "note": "rework: fixing three leftovers (banner, drag auto-scroll, order after split)",
       "updated": "2026-10-30T20:10:08Z"
     }
   ]

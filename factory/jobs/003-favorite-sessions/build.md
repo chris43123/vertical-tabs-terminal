@@ -78,3 +78,17 @@ Unchanged. Manual criteria are with the human.
   - Test: `App` can't be built in unit tests (it needs an egui/eframe context), so the test covers the lookup the fix relies on: `links_are_by_id_and_track_how_tabs_ended` now asserts `favorite_for_tab` for linked, unlinked and unknown tabs. That `renaming` stays `None` is left for the manual pass (Cmd+R on a favorite's tab).
 - code note (reopen_closed_tab): fixed in 808dcbc. A reopened tab that relinks to its favorite leaves its folder and `sync_favorite_order` runs.
 - Left as notes: `favorite_tabs()` runs twice per frame (cheap at realistic sizes). `sync_favorite_order` doesn't run when a tab is later split under a favorite. "Open in split" keeps the group (documented side effect).
+
+## Human feedback (2026-10-30T20:36Z)
+Commits: 71f23fb Show favorites as tiles and split into a favorite as a plain tab
+Checks: fmt ✓  clippy ✓  test ✓ (154 passed)
+Pushed: origin/factory/003-favorite-sessions at 71f23fb
+
+### Acceptance criteria
+Unchanged. The manual criteria are with the human (round-4 pass reported 5, 8, 10 working).
+
+### Review responses
+- human #1 (double-click on the resize handle didn't reset): fixed in 71f23fb. The handle was allocated with `Sense::drag()`, which never reports clicks, so `double_clicked()` was always false. It now uses `Sense::click_and_drag()`. Manual check: double-click the line under the favorites.
+- human #2 (Open in split of a favorite into another favorite's view): fixed in 71f23fb. `open_favorite` checks whether the focused tab (the split target) is a favorite's own tab or one of its split's tabs (`in_favorite_split`, tested by `a_split_into_a_favorite_is_found_from_any_of_its_tabs`). If so, the recipe's `favorite` link is cleared. The new tab is a plain tab with the favorite's cwd, profile and command, listed under the target favorite, and the opened favorite's row stays closed. Because it isn't linked, Reset on that tab restarts its own recipe rather than following later edits to the favorite. A favorite split into a normal tab's view is unchanged. README documents it.
+- human #3 (same indicator in both widths): done in 71f23fb. `favorite_tile` draws, in both widths, the rounded square with the first grapheme, the status dot on its bottom-right and the unread/bell badge on its top-right. Expanded it is 20 px, followed by the name. A leading emoji or symbol isn't repeated in the name (`row_label`, tested by `row_label_drops_the_emoji_the_tile_shows`). The tooltip still shows the full name. The badge moved from the row's right end onto the tile. README and the help window ("Tile dot") are updated.
+- Known non-blocking leftovers, unchanged as the human said: stale "command dropped" banner, no auto-scroll while dragging, `sync_favorite_order` after a later split, unescaped ids in `diag::warn`.
