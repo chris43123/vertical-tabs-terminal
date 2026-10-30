@@ -2,6 +2,9 @@
 
 Repo rules live in `factory/conventions.md`; read it before changing code.
 
+If `factory/HANDOFF.md` exists, read it first: it is the state left by the last
+session on another machine.
+
 ## Push everything
 
 This repo is worked on from more than one machine. Anything that exists only on a
