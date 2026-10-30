@@ -1,7 +1,7 @@
 # Handoff: PC de casa → PC del trabajo (2026-10-29)
 
-Para la próxima sesión, humano o Claude. Léelo entero antes de tocar nada. Bórralo
-(en un commit, y súbelo) cuando todo esté hecho.
+Para la próxima sesión, humano o Claude. Léelo entero antes de tocar nada. Se borra
+solo cuando se cumple la sección "Cierre" del final.
 
 ## Estado al salir
 
@@ -65,3 +65,24 @@ Para la próxima sesión, humano o Claude. Léelo entero antes de tocar nada. B�
   - el reset usa la versión nueva del favorito si todavía existe;
   - los favoritos son estado por máquina;
   - todo se configura por el CLI de vtt.
+
+## Cierre: cuándo borrar este archivo
+
+Claude revisa esto **al empezar cada sesión y después de cada paso de arriba**. Cuando
+los cuatro puntos se cumplen, borra este archivo en un commit propio ("Remove the
+handoff, its steps are done"), lo sube a la rama actual y avisa al usuario en una
+línea. Si falta alguno, no lo borra y dice cuál falta.
+
+1. **Los cambios de la PC del trabajo están en `main`.** Esto no se puede verificar
+   desde git: hay que preguntarle al usuario. Además, `git status` en la PC del
+   trabajo no debe mostrar cambios de código sin commitear.
+2. **El PR #2 está fusionado:** `gh pr view 2 --json state -q .state` devuelve
+   `MERGED`.
+3. **El job 001 ya tiene decisión:** en `factory/board.json`, `001-preview-selection`
+   tiene `stage` `merged`, o el usuario dijo explícitamente que lo descarta.
+4. **El usuario ya eligió el orden del backlog:** respondió si los jobs de favoritos
+   van primero o no. Que el archivo esté reordenado o no da igual; lo que cuenta es su
+   respuesta.
+
+Si el archivo ya está en `main`, el borrado sigue la regla de ramas de `CLAUDE.md`:
+rama + PR, nunca un commit directo a `main`.

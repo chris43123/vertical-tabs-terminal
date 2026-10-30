@@ -3,7 +3,9 @@
 Repo rules live in `factory/conventions.md`; read it before changing code.
 
 If `factory/HANDOFF.md` exists, read it first: it is the state left by the last
-session on another machine.
+session on another machine. Its "Cierre" section lists what must be true for it to go.
+Check it at the start and after each step; once every point holds, delete the file
+in its own commit and push. Don't leave a finished handoff behind.
 
 ## Push everything
 
