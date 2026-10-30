@@ -1,34 +1,24 @@
 ESCALATE
 
 ## Why
-The round 4 reviews (code PASS, design PASS, security SKIPPED because 8abc5cf and 808dcbc touch no security surface) all pass, and nothing blocking was declined. The diff adds no dependency, no default keybinding (`add_favorite` and `open_favorite_1..9` are unbound) and no `unsafe`. The automated criteria 1-4 and 11 are met, and the README now carries the "dropped bad command" note you asked for. I still can't call every acceptance criterion met, for two reasons.
-- The human's macOS pass confirmed only criteria 1, 3, 4, 6 and 7. Criteria 5, 8, 9 and 10 have no recorded result.
-- After that pass, the human's feedback (8abc5cf, 808dcbc) reworked the UI substantially: the favorite's row is now its tab, the tab list skips favorite tabs, splits are grouped under the favorite, there is a drag-resize handle, and there is a Favorites header with a hover "+". Unit tests can't build `App`, so the reviewers say none of this has been run in a GUI. That includes the last fix, rename on a favorite's tab. Criterion 2 (duplicate path refused) no longer holds by your own instruction, so spec.md is out of date there.
-
-The branch is also large (24 files, about 3,000 added lines). It changes existing behavior: tab order (favorite tabs are kept at the front of `ws.order`), Reset (it now uses the favorite's current recipe), and the `Watcher::changed` API. It also adds a new `vtt favorites` subcommand and a new on-disk file. Windows-only path handling is exercised only as string logic.
+The round 5 reviews (code PASS, design PASS, security PASS) are all clean, nothing blocking was declined, and the automated criteria 1-4 and 11 are met. The diff adds no dependency, no default keybinding (`add_favorite` and `open_favorite_1..9` are unbound) and no `unsafe`. I still can't approve, for two reasons.
+- The last commit (337bbca) changed the frame-level behavior and no GUI has run it: auto-scroll while dragging a favorite, the config banner clearing, and next/previous/go-to-tab following a new sidebar order (`Workspace::cycle` now takes that order). Unit tests can't build `App`, so the code reviewer left these to a manual pass. The human's last manual pass covered 71f23fb, not 337bbca. Criterion 9 (drag reorder, context menu, dialog validation, light and dark themes) has no explicit recorded result.
+- The branch has things a human should weigh in on: a new `vtt favorites` subcommand and a new on-disk file, changed existing behavior (tab order, Reset following the favorite's current recipe, the `Watcher::changed` and `Workspace::cycle` signatures), and Windows-only path code (`simplify`/`strip_verbatim`) that has only run as string logic on this box. The human accepted these earlier, so this is a confirmation, not a new question.
 
 ## For the human
-- Run the new UI by hand: `cargo run` in .worktrees/003-favorite-sessions. Check the following.
-  - Open a favorite. It must not add a row to the normal tab list. Check focus and bell markers, × and middle-click close, and double-click to rename (src/ui/sidebar/favorites.rs).
-  - Cmd+R on a favorite's tab, on a split sibling, and with the sidebar collapsed (src/app/tabs.rs `start_rename`, `start_view_rename`, `drop_undrawn_rename`). Nothing should get stuck and the sidebar peek should close.
-  - The resize handle: drag it, double-click to reset, and check it persists across restarts (`favorites_height`). Try a long list at a large UI zoom, in light and dark themes.
-  - Cmd+Shift+T on a closed favorite tab, then check its row position (src/app/tabs.rs `reopen_closed_tab`).
-  - Next/previous tab and "go to tab N" against the sidebar order (`sync_favorite_order`, src/app/favorites.rs).
-- Criteria 5, 8 and 10 still have no recorded manual result. Run:
-  - `cargo run -- favorites add /tmp --name "🚀 tmp"`
-  - `cargo run -- favorites set 1 command htop`, then Reset the tab
-  - Activity Monitor for idle CPU
-- Decide on the side effect that "Open in split" on a closed favorite splits the focused view and moves that view's tabs under the favorite (build.md, human #2).
-- Decide whether to leave the known non-blocking leftovers:
-  - A "command dropped" banner stays after the file is fixed.
-  - Dragging doesn't auto-scroll a scrolled list.
-  - `sync_favorite_order` doesn't run when a tab is later split under a favorite.
-  - Ids and unknown profile names can reach stderr unescaped via `diag::warn`.
-- Windows `simplify`/`strip_verbatim` (src/favorites/mod.rs ~365) has never run on real Windows. You said this is accepted.
-- Checks (152 tests passed per the reviewers): `cargo fmt --all -- --check && cargo clippy --all-targets -- -D warnings && cargo test` in .worktrees/003-favorite-sessions.
-- If the manual pass is clean, re-run the orchestrator with APPROVE, or merge with `factory/merge.sh`.
+- Run the 337bbca changes by hand: `cargo run` in .worktrees/003-favorite-sessions.
+  - Drag a favorite to the top and bottom edge of a scrolled favorites section. It should scroll and drop anywhere (src/ui/sidebar/favorites.rs, `ui::preview::autoscroll`). Idle CPU should stay ~0 afterwards.
+  - Put a command containing `\n` into favorites.toml, then fix it. The "command dropped" line should leave the banner (src/app/favorites.rs `drop_fixed_problems`).
+  - Split a tab under a favorite after it is already open. Next/previous tab and "go to tab N" must follow the sidebar order (src/app/favorites.rs `sync_favorite_order_on_change`, `sidebar_order`).
+  - Also check the earlier round-5 items: double-click on the resize handle resets the height, and "Open in split" of a favorite into another favorite's view opens a plain tab under the target.
+- Criterion 9, once: the context menu entries, the dialog validation, the collapsed view and the 20 px tile (dot and badge legibility) in light and dark themes at a large UI zoom.
+- Confirm Windows `simplify`/`strip_verbatim` (src/favorites/mod.rs ~365) is accepted unrun on Windows. You said it was.
+- Optional README nit (code review): "this favorite's own row stays closed" should read "stays as it was".
+- spec.md criterion 2 (duplicate path refused) is obsolete after your instruction to allow the same directory twice.
+- Checks: `cargo fmt --all -- --check && cargo clippy --all-targets -- -D warnings && cargo test` in .worktrees/003-favorite-sessions (157 tests passed per the reviewers).
+- If the manual pass is clean, merge with `factory/merge.sh`.
 
 ## Summary
-- Adds `src/favorites/`: a per-machine TOML favorites file with atomic, re-read-before-write updates, stable `f<N>` ids, single-line command validation also enforced on load, and a `vtt favorites list|add|set|unset|move|rm|path` CLI. The same directory can be pinned more than once.
-- Shows favorites in a "Favorites" section above the tabs. A favorite's row is its tab, with splits grouped under it. The section has a resizable height, drag reorder, a context menu, an add/edit dialog, palette entries and unbound `add_favorite`/`open_favorite_N` actions. It reloads live through the config watcher, which now reports which file changed. `LaunchRecipe.favorite` makes Reset use the favorite's current recipe. README, config.example.toml and the help window are updated.
-- Commits: a043de8 Pin favorite directories above the tabs; ac094cb Check hand-edited favorites on load and cap the pinned list's height; 8abc5cf Make a favorite's row its tab and let one directory be pinned twice; 808dcbc Rename a favorite's tab through its edit dialog.
+- Adds `src/favorites/`: a per-machine TOML favorites file with atomic, re-read-before-write updates, stable `f<N>` ids, single-line command validation on save and load, and a `vtt favorites list|add|set|unset|move|rm|path` CLI. The same directory can be pinned more than once.
+- Shows favorites in a "Favorites" section above the tabs. A favorite's row is its tab, with splits grouped under it. Both sidebar widths share one tile design. The section has a resizable height, drag reorder with auto-scroll, a context menu, an add/edit dialog, palette entries and unbound actions. It reloads live through the config watcher. `LaunchRecipe.favorite` makes Reset use the favorite's current recipe. README, config.example.toml and the help window are updated.
+- Commits: a043de8 Pin favorite directories above the tabs; ac094cb Check hand-edited favorites on load and cap the pinned list's height; 8abc5cf Make a favorite's row its tab and let one directory be pinned twice; 808dcbc Rename a favorite's tab through its edit dialog; 71f23fb Show favorites as tiles and split into a favorite as a plain tab; 337bbca Clear fixed favorite warnings, auto-scroll favorite drags, keep tab order.
