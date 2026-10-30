@@ -58,7 +58,7 @@
       "id": "003-favorite-sessions",
       "title": "Favorite directories as pinned sessions",
       "branch": "factory/003-favorite-sessions",
-      "stage": "needs-human",
+      "stage": "build",
       "round": 2,
       "reviews": {
         "security": "PASS",
@@ -74,9 +74,9 @@
           "code": "CHANGES"
         }
       ],
-      "decision": "ESCALATE",
-      "note": "All four reviews PASS; manual criteria 5-10 never run in a GUI, plus new CLI, favorites.toml and Reset-follows-favorite need a human.",
-      "updated": "2026-10-30T16:46:50Z"
+      "decision": null,
+      "note": "rework: favorite row is the tab, resizable section, same path twice, header with + button, README note",
+      "updated": "2026-10-30T17:07:25Z"
     }
   ]
 }
