@@ -20,12 +20,21 @@ impl App {
         let mut exited = Vec::new();
         let mut woke = Vec::new();
         let bell_mode = self.config.bell;
-        while let Ok((id, event)) = self.rx.try_recv() {
+        while let Ok((source, event)) = self.rx.try_recv() {
+            let id = source.tab;
             let Some(tab) = self.tabs.get_mut(&id) else {
                 continue;
             };
+            // A session replaced by Reset can still send events (its exit, above all).
+            if tab.session().map(|s| s.generation()) != Some(source.generation) {
+                continue;
+            }
             match event {
                 TermEvent::Wakeup => {
+                    // The shell printed (its prompt, usually): it's ready for the recipe's command.
+                    if let Some(bytes) = tab.pending_input.take() {
+                        tab.session().unwrap().write(bytes);
+                    }
                     if !visible.contains(&id) {
                         tab.activity = true;
                     }

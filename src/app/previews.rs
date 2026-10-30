@@ -135,7 +135,7 @@ impl App {
             Drop::Edge(edge) if path.is_dir() => {
                 self.activate(target);
                 if let Some(profile) = self.profiles.first().cloned() {
-                    self.spawn_tab(profile, Some(path), Some(edge));
+                    self.spawn_tab(super::LaunchRecipe::new(profile, Some(path)), Some(edge));
                 }
             }
             Drop::Edge(edge) => {

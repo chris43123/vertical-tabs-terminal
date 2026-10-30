@@ -16,6 +16,8 @@ pub enum Action {
     ReopenClosedTab,
     DuplicateTab,
     RenameTab,
+    /// Kill everything in the focused tab and start it again from its launch recipe.
+    ResetTab,
     SplitRight,
     SplitDown,
     /// Pull the focused pane out of its split into its own tab.
@@ -68,6 +70,7 @@ pub const ACTIONS: &[(&str, &str, Action)] = &[
     ),
     ("duplicate_tab", "Duplicate tab", Action::DuplicateTab),
     ("rename_tab", "Rename tab", Action::RenameTab),
+    ("reset_tab", "Reset tab", Action::ResetTab),
     (
         "split_right",
         "Split right with new tab",
@@ -737,6 +740,29 @@ mod tests {
         }
         assert_eq!(Action::GotoTab(3).config_name(), "goto_tab_3");
         assert_eq!(Action::GotoTab(3).label(), "Go to tab 3");
+    }
+
+    #[test]
+    fn reset_tab_is_an_unbound_action() {
+        assert_eq!(Action::from_name("reset_tab"), Some(Action::ResetTab));
+        assert_eq!(Action::ResetTab.label(), "Reset tab");
+        for macos in [false, true] {
+            assert!(
+                default_specs(macos)
+                    .iter()
+                    .all(|(_, a)| *a != Action::ResetTab),
+                "macos={macos}"
+            );
+        }
+        let kb = Keybinds::new(&HashMap::new());
+        assert!(kb.chords(Action::ResetTab).is_empty());
+        // The example chord in config.example.toml is free on Linux/Windows.
+        let example = Chord::parse_for("ctrl+shift+r", false).unwrap();
+        assert!(
+            default_specs(false)
+                .iter()
+                .all(|(s, _)| Chord::parse_for(s, false).unwrap() != example)
+        );
     }
 
     #[cfg(not(target_os = "macos"))]

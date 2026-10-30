@@ -147,6 +147,7 @@ impl App {
             _ => tab.title().to_string(),
         };
         let (activity, bell) = (tab.activity, tab.bell);
+        let is_term = tab.session().is_some();
 
         // Unread / bell badges.
         let badge = if bell {
@@ -267,6 +268,7 @@ impl App {
                     Action::StartRename(RenameTarget::Tab(id)),
                 ),
                 ("Duplicate", Shortcut::DuplicateTab, Action::Duplicate(id)),
+                ("Reset", Shortcut::ResetTab, Action::Reset(id)),
                 ("Move up", Shortcut::MoveTabUp, Action::Move(id, false)),
                 ("Move down", Shortcut::MoveTabDown, Action::Move(id, true)),
                 (
@@ -277,7 +279,9 @@ impl App {
                 ("Close", Shortcut::CloseTab, Action::Close(id)),
             ];
             for (text, shortcut, action) in items {
-                if matches!(action, Action::Minimize(_)) && !in_split {
+                if matches!(action, Action::Minimize(_)) && !in_split
+                    || matches!(action, Action::Reset(_)) && !is_term
+                {
                     continue;
                 }
                 if matches!(action, Action::Close(_)) {

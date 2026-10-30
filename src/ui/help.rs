@@ -44,6 +44,7 @@ const SECTIONS: &[(&str, &[Action])] = {
                 ReopenClosedTab,
                 DuplicateTab,
                 RenameTab,
+                ResetTab,
                 NextTab,
                 PrevTab,
                 MoveTabUp,

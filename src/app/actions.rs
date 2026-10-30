@@ -55,6 +55,11 @@ impl App {
                     self.duplicate_tab(f);
                 }
             }
+            Action::ResetTab => {
+                if let Some(f) = self.ws.focused() {
+                    self.reset_tab(f);
+                }
+            }
             Action::RenameTab => {
                 if let Some(f) = self.ws.focused() {
                     self.start_rename(f);

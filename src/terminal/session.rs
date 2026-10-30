@@ -17,23 +17,32 @@ use crate::terminal::procinfo::{self, ProcInfo};
 use crate::terminal::profiles::Profile;
 use crate::workspace::TabId;
 
+/// Which session an event came from: its tab, and the session's generation within the app.
+/// A reset gives the tab a new session under the same id; the generation tells the old
+/// session's late events (its exit above all) apart from the new one's.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Source {
+    pub tab: TabId,
+    pub generation: u64,
+}
+
 /// Forwards terminal events from the PTY thread to the UI thread and wakes egui.
 #[derive(Clone)]
 pub struct Listener {
-    id: TabId,
-    tx: Sender<(TabId, Event)>,
+    source: Source,
+    tx: Sender<(Source, Event)>,
     ctx: eframe::egui::Context,
 }
 
 impl Listener {
-    pub fn new(id: TabId, tx: Sender<(TabId, Event)>, ctx: eframe::egui::Context) -> Self {
-        Self { id, tx, ctx }
+    pub fn new(source: Source, tx: Sender<(Source, Event)>, ctx: eframe::egui::Context) -> Self {
+        Self { source, tx, ctx }
     }
 }
 
 impl EventListener for Listener {
     fn send_event(&self, event: Event) {
-        let _ = self.tx.send((self.id, event));
+        let _ = self.tx.send((self.source, event));
         // egui coalesces repaint requests, so a flood of output still renders once per frame.
         self.ctx.request_repaint();
     }
@@ -67,6 +76,10 @@ pub struct Session {
     /// PTY master fd, used to query the foreground process group.
     #[cfg(unix)]
     pty_fd: std::os::fd::RawFd,
+    /// Job object holding the shell and everything it starts, so Reset can end them all.
+    #[cfg(windows)]
+    job: Option<job::Job>,
+    generation: u64,
 }
 
 impl Session {
@@ -112,7 +125,7 @@ impl Session {
         };
 
         let window_size = window_size(size, cell_px);
-        let pty = tty::new(&options, window_size, listener.id)?;
+        let pty = tty::new(&options, window_size, listener.source.tab)?;
 
         #[cfg(unix)]
         let (child_pid, pty_fd) = {
@@ -121,6 +134,11 @@ impl Session {
         };
         #[cfg(windows)]
         let child_pid = pty.child_watcher().pid().map(|p| p.get());
+        // alacritty has already started the shell, so a grandchild started in this short
+        // window could escape the job.
+        #[cfg(windows)]
+        let job = child_pid.and_then(job::Job::for_process);
+        let generation = listener.source.generation;
 
         let term = Arc::new(FairMutex::new(Term::new(
             term_config,
@@ -140,7 +158,31 @@ impl Session {
             child_pid,
             #[cfg(unix)]
             pty_fd,
+            #[cfg(windows)]
+            job,
+            generation,
         })
+    }
+
+    /// Generation of this session (see [`Source`]).
+    pub fn generation(&self) -> u64 {
+        self.generation
+    }
+
+    /// End everything running in this session: the shell, the foreground program and
+    /// background jobs. Unix: every process group in the shell's session gets SIGHUP, and
+    /// SIGKILL a moment later if it ignored that (from a one-shot thread, so the UI never
+    /// waits). Processes that left the session with `setsid` survive by design. Windows: the
+    /// job object is terminated. The session itself still has to be dropped.
+    pub fn kill_tree(&self) {
+        #[cfg(unix)]
+        if let Some(pid) = self.child_pid {
+            kill::session(pid as libc::pid_t, self.pty_fd);
+        }
+        #[cfg(windows)]
+        if let Some(job) = &self.job {
+            job.terminate();
+        }
     }
 
     /// The foreground process and the shell's cwd.
@@ -182,6 +224,159 @@ impl Drop for Session {
     }
 }
 
+#[cfg(unix)]
+mod kill {
+    use std::time::Duration;
+
+    use libc::pid_t;
+
+    /// Time a process gets to exit after SIGHUP before it's killed.
+    const GRACE: Duration = Duration::from_millis(500);
+
+    /// Hang up every process group in session `sid` (the shell's pid: alacritty starts it with
+    /// `setsid`), plus the terminal's foreground group, then kill what's left after [`GRACE`].
+    pub fn session(sid: pid_t, pty_fd: std::os::fd::RawFd) {
+        // Never signal init's session, or (killpg with 0) our own group.
+        if sid <= 1 {
+            return;
+        }
+        let groups = groups(sid, pty_fd);
+        signal(&groups, libc::SIGHUP);
+        // SIGCONT so stopped jobs (Ctrl+Z) act on the hangup.
+        signal(&groups, libc::SIGCONT);
+        std::thread::spawn(move || {
+            std::thread::sleep(GRACE);
+            // Re-scan: the session id stays reserved while any member lives, so whatever is
+            // still in it now is what ignored the hangup.
+            signal(&groups_in_session(sid), libc::SIGKILL);
+        });
+    }
+
+    fn signal(groups: &[pid_t], sig: libc::c_int) {
+        for &g in groups {
+            // SAFETY: killpg only sends a signal; a stale group just returns ESRCH.
+            unsafe { libc::killpg(g, sig) };
+        }
+    }
+
+    fn groups(sid: pid_t, pty_fd: std::os::fd::RawFd) -> Vec<pid_t> {
+        let mut groups = groups_in_session(sid);
+        // SAFETY: tcgetpgrp only reads the fd; an invalid fd returns -1.
+        let fg = unsafe { libc::tcgetpgrp(pty_fd) };
+        groups.extend([fg, sid].into_iter().filter(|g| *g > 0));
+        groups.sort_unstable();
+        groups.dedup();
+        groups
+    }
+
+    /// Process groups with a member in session `sid`.
+    pub(super) fn groups_in_session(sid: pid_t) -> Vec<pid_t> {
+        let mut groups: Vec<pid_t> = all_pids()
+            .into_iter()
+            // SAFETY: getsid only reads process state; a gone pid returns -1.
+            .filter(|&pid| pid > 0 && unsafe { libc::getsid(pid) } == sid)
+            // SAFETY: getpgid only reads process state; a gone pid returns -1.
+            .map(|pid| unsafe { libc::getpgid(pid) })
+            .filter(|&g| g > 0)
+            .collect();
+        groups.sort_unstable();
+        groups.dedup();
+        groups
+    }
+
+    #[cfg(target_os = "linux")]
+    fn all_pids() -> Vec<pid_t> {
+        std::fs::read_dir("/proc")
+            .map(|dir| {
+                dir.filter_map(|e| e.ok()?.file_name().to_str()?.parse().ok())
+                    .collect()
+            })
+            .unwrap_or_default()
+    }
+
+    #[cfg(target_os = "macos")]
+    fn all_pids() -> Vec<pid_t> {
+        // SAFETY: a null buffer asks for the number of pids.
+        let n = unsafe { libc::proc_listallpids(std::ptr::null_mut(), 0) };
+        if n <= 0 {
+            return Vec::new();
+        }
+        // Room for processes started between the two calls.
+        let mut pids: Vec<pid_t> = vec![0; n as usize + 64];
+        let size = (pids.len() * std::mem::size_of::<pid_t>()) as libc::c_int;
+        // SAFETY: `pids` is writable for `size` bytes.
+        let n = unsafe { libc::proc_listallpids(pids.as_mut_ptr().cast(), size) };
+        pids.truncate(n.max(0) as usize);
+        pids
+    }
+
+    /// Elsewhere only the foreground group and the shell's own are signalled.
+    #[cfg(not(any(target_os = "linux", target_os = "macos")))]
+    fn all_pids() -> Vec<pid_t> {
+        Vec::new()
+    }
+}
+
+#[cfg(windows)]
+mod job {
+    use windows_sys::Win32::Foundation::{CloseHandle, HANDLE};
+    use windows_sys::Win32::System::JobObjects::{
+        AssignProcessToJobObject, CreateJobObjectW, JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE,
+        JOBOBJECT_EXTENDED_LIMIT_INFORMATION, JobObjectExtendedLimitInformation,
+        SetInformationJobObject, TerminateJobObject,
+    };
+    use windows_sys::Win32::System::Threading::{
+        OpenProcess, PROCESS_SET_QUOTA, PROCESS_TERMINATE,
+    };
+
+    /// A job object that kills its processes when terminated or closed.
+    pub struct Job(HANDLE);
+
+    impl Job {
+        /// Put process `pid` (and so everything it starts later) in a new job.
+        pub fn for_process(pid: u32) -> Option<Self> {
+            // SAFETY: plain Win32 calls; every handle is checked and closed on failure.
+            unsafe {
+                let job = CreateJobObjectW(std::ptr::null(), std::ptr::null());
+                if job.is_null() {
+                    return None;
+                }
+                let job = Job(job);
+                let mut info: JOBOBJECT_EXTENDED_LIMIT_INFORMATION = std::mem::zeroed();
+                info.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
+                let ok = SetInformationJobObject(
+                    job.0,
+                    JobObjectExtendedLimitInformation,
+                    (&info as *const JOBOBJECT_EXTENDED_LIMIT_INFORMATION).cast(),
+                    std::mem::size_of::<JOBOBJECT_EXTENDED_LIMIT_INFORMATION>() as u32,
+                );
+                if ok == 0 {
+                    return None;
+                }
+                let process = OpenProcess(PROCESS_SET_QUOTA | PROCESS_TERMINATE, 0, pid);
+                if process.is_null() {
+                    return None;
+                }
+                let ok = AssignProcessToJobObject(job.0, process);
+                CloseHandle(process);
+                (ok != 0).then_some(job)
+            }
+        }
+
+        pub fn terminate(&self) {
+            // SAFETY: the handle is valid until drop.
+            unsafe { TerminateJobObject(self.0, 1) };
+        }
+    }
+
+    impl Drop for Job {
+        fn drop(&mut self) {
+            // SAFETY: the handle is valid and closed only here.
+            unsafe { CloseHandle(self.0) };
+        }
+    }
+}
+
 /// Terminal options from the config. `default_cursor_style` is what the cursor returns to
 /// until (or after) a program sets its own, so the configured shape and blink apply exactly.
 pub fn term_config(scrollback: usize, cursor: &CursorConfig) -> term::Config {
@@ -207,5 +402,45 @@ fn window_size(size: GridSize, cell_px: (u16, u16)) -> WindowSize {
         num_cols: size.cols as u16,
         cell_width: cell_px.0,
         cell_height: cell_px.1,
+    }
+}
+
+#[cfg(all(test, any(target_os = "linux", target_os = "macos")))]
+mod tests {
+    use std::os::unix::process::CommandExt;
+    use std::time::{Duration, Instant};
+
+    use super::kill;
+
+    #[test]
+    fn kill_session_ends_background_jobs_and_ignorers() {
+        // A session leader like the shell, with a background job and a child that ignores SIGHUP.
+        let mut cmd = std::process::Command::new("/bin/sh");
+        cmd.args(["-c", "sleep 300 & (trap '' HUP; sleep 300) & wait"]);
+        // SAFETY: setsid is async-signal-safe.
+        unsafe {
+            cmd.pre_exec(|| {
+                libc::setsid();
+                Ok(())
+            });
+        }
+        let mut child = cmd.spawn().unwrap();
+        let sid = child.id() as libc::pid_t;
+        let start = Instant::now();
+        while kill::groups_in_session(sid).is_empty() && start.elapsed() < Duration::from_secs(5) {
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        assert!(!kill::groups_in_session(sid).is_empty());
+
+        kill::session(sid, -1);
+        let _ = child.wait();
+        let start = Instant::now();
+        while !kill::groups_in_session(sid).is_empty() && start.elapsed() < Duration::from_secs(5) {
+            std::thread::sleep(Duration::from_millis(50));
+        }
+        assert!(
+            kill::groups_in_session(sid).is_empty(),
+            "processes survived"
+        );
     }
 }

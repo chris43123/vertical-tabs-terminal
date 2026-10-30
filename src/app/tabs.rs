@@ -3,12 +3,12 @@
 
 use std::path::{Path, PathBuf};
 
-use crate::terminal::profiles::Profile;
-use crate::terminal::session::{GridSize, Listener, Session};
+use crate::terminal::session::{GridSize, Listener, Session, Source};
 use crate::ui::view_names::{ViewDirs, auto_names};
 use crate::workspace::{Drop, Edge, GroupId, TabId};
 
 use super::App;
+use super::recipe::LaunchRecipe;
 use super::tab::{ClosedTab, Content, MAX_CLOSED, RenameTarget, Tab};
 
 impl App {
@@ -22,12 +22,12 @@ impl App {
             .clone();
         // Start in the focused tab's directory, like most terminals do.
         let cwd = self.ws.focused().and_then(|f| self.focused_dir(f));
-        self.spawn_tab(profile, cwd, split)
+        self.spawn_tab(LaunchRecipe::new(profile, cwd), split)
     }
 
     pub fn new_tab_in(&mut self, dir: PathBuf) {
         if let Some(profile) = self.profiles.first().cloned() {
-            self.spawn_tab(profile, Some(dir), None);
+            self.spawn_tab(LaunchRecipe::new(profile, Some(dir)), None);
         }
     }
 
@@ -43,37 +43,22 @@ impl App {
         tab.dir().map(Path::to_path_buf)
     }
 
-    pub(super) fn spawn_tab(
-        &mut self,
-        profile: Profile,
-        cwd: Option<PathBuf>,
-        split: Option<Edge>,
-    ) -> Option<TabId> {
+    /// Open a terminal tab from `recipe`. Returns its id.
+    pub(super) fn spawn_tab(&mut self, recipe: LaunchRecipe, split: Option<Edge>) -> Option<TabId> {
         let id = self.next_id;
-        self.next_id += 1;
-        let focused = self.ws.focused();
-
         // Real size is applied on the first layout pass.
         let size = GridSize {
             cols: 80,
             lines: 24,
         };
-        let session = match Session::spawn(
-            &profile,
-            cwd,
-            crate::terminal::session::term_config(self.config.scrollback, &self.config.cursor),
-            size,
-            self.fonts.cell_px(),
-            Listener::new(id, self.tx.clone(), self.ctx.clone()),
-        ) {
-            Ok(s) => s,
-            Err(err) => {
-                crate::diag::warn(format!("failed to start {}: {err}", profile.command));
-                return None;
-            }
-        };
-        self.tabs
-            .insert(id, Tab::new(Content::Term(session), profile));
+        let session = self.start_session(id, &recipe, size)?;
+        self.next_id += 1;
+        let focused = self.ws.focused();
+        let mut tab = Tab::new(Content::Term(session), recipe.profile.clone());
+        tab.custom_title = recipe.custom_title.clone();
+        tab.pending_input = recipe.typed_input();
+        tab.recipe = Some(recipe);
+        self.tabs.insert(id, tab);
         self.ws.add(id, focused);
         if let (Some(edge), Some(target)) = (split, focused) {
             self.ws.drop_on(id, target, Drop::Edge(edge));
@@ -82,14 +67,106 @@ impl App {
         Some(id)
     }
 
+    /// Start `recipe`'s shell for tab `id`, with a new generation.
+    fn start_session(
+        &mut self,
+        id: TabId,
+        recipe: &LaunchRecipe,
+        size: GridSize,
+    ) -> Option<Session> {
+        let source = Source {
+            tab: id,
+            generation: self.next_generation,
+        };
+        self.next_generation += 1;
+        match Session::spawn(
+            &recipe.profile,
+            recipe.dir.clone(),
+            crate::terminal::session::term_config(self.config.scrollback, &self.config.cursor),
+            size,
+            self.fonts.cell_px(),
+            Listener::new(source, self.tx.clone(), self.ctx.clone()),
+        ) {
+            Ok(s) => Some(s),
+            Err(err) => {
+                crate::diag::warn(format!("failed to start {}: {err}", recipe.profile.command));
+                None
+            }
+        }
+    }
+
+    /// Reset tab `id`: ask first if something other than the idle shell is running (and
+    /// `confirm_reset` is on), else [`Self::reset_tab_now`]. Previews can't be reset.
+    pub fn reset_tab(&mut self, id: TabId) {
+        let Some(tab) = self.tabs.get(&id) else {
+            return;
+        };
+        let Some(session) = tab.session().filter(|_| tab.recipe.is_some()) else {
+            return;
+        };
+        if self.config.confirm_reset && !session.shell_idle() {
+            let process = session
+                .proc_info()
+                .process
+                .or_else(|| tab.process.clone())
+                .unwrap_or_else(|| "A program".into());
+            self.reset_prompt = Some(crate::ui::ResetPrompt::new(
+                id,
+                tab.title().to_string(),
+                process,
+            ));
+            return;
+        }
+        self.reset_tab_now(id);
+    }
+
+    /// Kill everything running in tab `id` and start its recipe again in place: same id, so
+    /// its position, split, folder, custom title and zoom stay. The old session's late events
+    /// carry an old generation and are dropped, so its exit doesn't close the tab.
+    pub fn reset_tab_now(&mut self, id: TabId) {
+        let Some(tab) = self.tabs.get(&id) else {
+            return;
+        };
+        let (Some(recipe), Some(old)) = (tab.recipe.clone(), tab.session()) else {
+            return;
+        };
+        let size = old.size;
+        old.kill_tree();
+        let Some(session) = self.start_session(id, &recipe, size) else {
+            // Leave the (dying) old session; its exit closes the tab as usual.
+            return;
+        };
+        let Some(tab) = self.tabs.get_mut(&id) else {
+            return;
+        };
+        // Dropping the old session stops its IO thread and hangs up the PTY.
+        tab.content = Content::Term(session);
+        tab.osc_title = None;
+        tab.auto_title = None;
+        tab.process = None;
+        tab.activity = false;
+        tab.bell = false;
+        tab.bell_flash = None;
+        tab.cwd = recipe.dir.clone();
+        tab.pending_input = recipe.typed_input();
+        if self.reset_prompt.as_ref().is_some_and(|p| p.tab == id) {
+            self.reset_prompt = None;
+        }
+    }
+
     pub fn close_tab(&mut self, id: TabId) {
         if let Some(tab) = self.tabs.get(&id) {
+            // Reopen where the shell was last, not where it started.
+            let cwd = tab
+                .session()
+                .and_then(|s| s.proc_info().cwd)
+                .or(tab.cwd.clone());
             self.closed.push(ClosedTab {
-                profile: tab.profile.clone(),
-                cwd: tab
-                    .session()
-                    .and_then(|s| s.proc_info().cwd)
-                    .or(tab.cwd.clone()),
+                recipe: tab.recipe.clone().map(|r| LaunchRecipe {
+                    dir: cwd.or(r.dir),
+                    custom_title: tab.custom_title.clone(),
+                    ..r
+                }),
                 custom_title: tab.custom_title.clone(),
                 index: self.ws.order.iter().position(|t| *t == id).unwrap_or(0),
                 preview: tab.preview().map(|p| p.path.clone()),
@@ -100,6 +177,9 @@ impl App {
         }
         self.ws.close(id);
         self.tabs.remove(&id);
+        if self.reset_prompt.as_ref().is_some_and(|p| p.tab == id) {
+            self.reset_prompt = None;
+        }
         if self.renaming.as_ref().is_some_and(
             |(r, _)| matches!(*r, RenameTarget::Tab(t) | RenameTarget::View(t) if t == id),
         ) {
@@ -114,9 +194,10 @@ impl App {
         let Some(closed) = self.closed.pop() else {
             return;
         };
-        let id = match closed.preview {
-            Some(path) => self.spawn_preview(path, None),
-            None => self.spawn_tab(closed.profile, closed.cwd, None),
+        let id = match (closed.preview, closed.recipe) {
+            (Some(path), _) => self.spawn_preview(path, None),
+            (None, Some(recipe)) => self.spawn_tab(recipe, None),
+            (None, None) => None,
         };
         if let Some(id) = id {
             if let Some(tab) = self.tabs.get_mut(&id) {

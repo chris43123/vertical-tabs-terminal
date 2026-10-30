@@ -14,11 +14,7 @@ use super::tab::Tab;
 impl App {
     /// Route keyboard/clipboard events to the focused terminal.
     pub(super) fn handle_keyboard(&mut self) {
-        if self.renaming.is_some()
-            || self.switcher.is_some()
-            || self.help.is_some()
-            || self.ctx.egui_wants_keyboard_input()
-        {
+        if self.overlay_open() || self.ctx.egui_wants_keyboard_input() {
             return;
         }
         let events = self.ctx.input(|i| i.events.clone());
@@ -45,7 +41,7 @@ impl App {
                         continue;
                     }
                     // Keys typed after opening the switcher or a rename box belong to that text field.
-                    if self.switcher.is_some() || self.renaming.is_some() || self.help.is_some() {
+                    if self.overlay_open() {
                         break;
                     }
                     if self.preview_key(key, modifiers) {
@@ -64,7 +60,7 @@ impl App {
                     swallow_text = false;
                     swallowed.push(index);
                 }
-                _ if self.switcher.is_some() || self.renaming.is_some() || self.help.is_some() => {
+                _ if self.overlay_open() => {
                     break;
                 }
                 egui::Event::Text(text) => {
@@ -117,6 +113,14 @@ impl App {
                 });
             });
         }
+    }
+
+    /// A text field or dialog that takes the keyboard instead of the terminal is open.
+    fn overlay_open(&self) -> bool {
+        self.switcher.is_some()
+            || self.renaming.is_some()
+            || self.help.is_some()
+            || self.reset_prompt.is_some()
     }
 
     pub(super) fn focused_session(&self) -> Option<&Session> {

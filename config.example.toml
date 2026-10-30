@@ -67,6 +67,10 @@ hide_pointer_when_typing = true
 # (drag, double or triple click). The selection stays highlighted.
 copy_on_select = false
 
+# Ask before "Reset tab" kills a program running in the tab (vim, a build, ssh...).
+# Resetting a tab that is just at its prompt never asks. Windows never asks.
+confirm_reset = true
+
 [font]
 # Font family; defaults to the system monospace font.
 # family = "JetBrains Mono"
@@ -111,6 +115,7 @@ wrap = true
 # close_tab = []                           # unbind
 # duplicate_tab = "alt+shift+n"            # unbound by default
 # new_group = "alt+g"                      # unbound by default
+# reset_tab = "ctrl+shift+r"               # unbound by default
 # goto_tab_1 = "alt+1"                     # Linux/Windows: most actions are unbound
 
 # Extra profiles, added after the auto-discovered shells.

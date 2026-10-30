@@ -58,6 +58,8 @@ pub struct Config {
     pub hide_pointer_when_typing: bool,
     /// Copy text to the clipboard as soon as it's selected with the mouse.
     pub copy_on_select: bool,
+    /// Ask before resetting a tab that is running something other than its idle shell.
+    pub confirm_reset: bool,
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize, Serialize)]
@@ -183,6 +185,7 @@ impl Default for Config {
             focus_follows_mouse: false,
             hide_pointer_when_typing: true,
             copy_on_select: false,
+            confirm_reset: true,
         }
     }
 }

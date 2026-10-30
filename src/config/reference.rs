@@ -159,6 +159,13 @@ pub const OPTIONS: &[Opt] = &[
         "Copy text to the clipboard as soon as you finish selecting it with the mouse (drag, double or triple click).",
     ),
     opt(
+        "confirm_reset",
+        "bool",
+        "",
+        None,
+        "Ask before \"Reset tab\" kills a program running in the tab (never asked on Windows, where vtt can't tell).",
+    ),
+    opt(
         "font.family",
         "string",
         "an installed font family",

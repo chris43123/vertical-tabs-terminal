@@ -1,5 +1,5 @@
 //! egui chrome: the vertical tab sidebar, the files panel, the split pane area (terminals and
-//! file previews), the tab switcher, the keyboard shortcuts window and toasts.
+//! file previews), the tab switcher, the keyboard shortcuts window, the reset confirmation and toasts.
 
 mod banner;
 mod files;
@@ -7,6 +7,7 @@ mod help;
 pub mod icons;
 mod panes;
 mod preview;
+mod reset_prompt;
 mod sidebar;
 mod switcher;
 mod toast;
@@ -16,6 +17,7 @@ use std::path::Path;
 
 pub use files::FileDrag;
 pub use help::Help;
+pub use reset_prompt::ResetPrompt;
 pub use switcher::Switcher;
 pub use toast::{Toast, copied_summary, count as toast_count};
 

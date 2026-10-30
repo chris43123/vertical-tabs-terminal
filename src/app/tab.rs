@@ -8,6 +8,8 @@ use crate::terminal::profiles::Profile;
 use crate::terminal::session::Session;
 use crate::workspace::{GroupId, TabId};
 
+use super::recipe::LaunchRecipe;
+
 /// What a tab shows: a shell, or a read-only file preview.
 pub enum Content {
     Term(Session),
@@ -40,6 +42,11 @@ pub struct Tab {
     pub process: Option<String>,
     /// Zoom of this pane in points, relative to the base font size (not persisted).
     pub zoom: f32,
+    /// How a terminal tab was launched (`None` for previews); Reset starts it again from this.
+    pub recipe: Option<LaunchRecipe>,
+    /// The recipe's command, written to the shell on its first output (so shells that drop
+    /// typeahead before their first prompt still get it).
+    pub pending_input: Option<Vec<u8>>,
 }
 
 impl Tab {
@@ -61,6 +68,8 @@ impl Tab {
             cwd: None,
             process: None,
             zoom: 0.0,
+            recipe: None,
+            pending_input: None,
         }
     }
 
@@ -111,8 +120,8 @@ impl Tab {
 
 /// Enough of a closed tab to reopen it.
 pub(super) struct ClosedTab {
-    pub profile: Profile,
-    pub cwd: Option<PathBuf>,
+    /// Set for a closed terminal: its recipe, with the last directory seen.
+    pub recipe: Option<LaunchRecipe>,
     pub custom_title: Option<String>,
     pub index: usize,
     /// Set for a closed preview: the file it showed.

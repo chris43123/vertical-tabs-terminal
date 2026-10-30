@@ -24,6 +24,7 @@ Inspired by Warp, minus the weight: Warp's good ideas (a file tree that follows 
 - **File previews.** Click a file to open it in a pane next to the terminal: rendered Markdown, syntax-highlighted code and JSON, images. Copy the whole file in one click, select lines by their numbers, or copy a `path:12-40` reference for an agent.
 - **Git at a glance.** The files panel shows the branch, commits ahead/behind, and changed files highlighted in green.
 - **File search.** Fuzzy-find any file in the project from the files panel.
+- **Reset tab.** Every tab remembers how it was launched (shell, directory, name). "Reset tab" (palette or the tab's right-click menu) kills everything running in it, background jobs included, and starts a fresh shell in the same slot, split and folder, in the directory it was opened in. A wedged REPL, a hung `ssh` or a runaway build is one click from a clean prompt. It asks first if a program is running (`confirm_reset`; on Windows vtt can't tell, so it never asks). On Linux/macOS, processes that detach with `setsid` (daemons) leave the tab's session and survive by design.
 - **Hover a tab** for a moment to see its full working directory and the program running in it.
 - **Auto titles.** A tab shows the title the shell sets, or `<process> · <cwd>` (on Linux and macOS).
 - **Activity indicators.** A dot appears when a background tab prints output, and a badge on a bell or when the process exits.
@@ -71,6 +72,7 @@ On Linux and Windows, vtt only binds the shortcuts terminals conventionally use 
 | New folder with the focused tab | — | — |
 | Search files (in the files panel) | — | — |
 | Duplicate tab | — | — |
+| Reset tab (kill what runs in it, start it again in place) | — | — |
 
 **Terminal**
 
@@ -92,7 +94,7 @@ On Linux and Windows, vtt only binds the shortcuts terminals conventionally use 
 
 Every shortcut can be changed in the `[keybindings]` section of the config (see below). Setting an action replaces all of its defaults. Use a list for several chords, and `[]` to unbind it. Modifiers are `ctrl`, `shift`, `alt` and `cmd` (macOS only). Keys are letters, digits, `f1`–`f24`, `tab`, `enter`, `space`, `pageup`, `pagedown`, `home`, `end`, `left`/`right`/`up`/`down`, `plus`, `minus`, `equals`, `[`, `]` and similar.
 
-Actions: `new_tab`, `close_tab`, `reopen_closed_tab`, `duplicate_tab`, `rename_tab`, `split_right`, `split_down`, `minimize_pane`, `toggle_sidebar`, `toggle_side_area`, `next_tab`, `prev_tab`, `move_tab_up`, `move_tab_down`, `goto_tab_1` … `goto_tab_9`, `last_tab`, `next_activity`, `command_palette`, `toggle_files`, `search_files`, `new_group`, `open_settings`, `focus_left`, `focus_right`, `focus_up`, `focus_down`, `zoom_in`, `zoom_out`, `zoom_reset`, `ui_zoom_in`, `ui_zoom_out`, `ui_zoom_reset`, `scroll_page_up`, `scroll_page_down`, `show_help`.
+Actions: `new_tab`, `close_tab`, `reopen_closed_tab`, `duplicate_tab`, `rename_tab`, `reset_tab`, `split_right`, `split_down`, `minimize_pane`, `toggle_sidebar`, `toggle_side_area`, `next_tab`, `prev_tab`, `move_tab_up`, `move_tab_down`, `goto_tab_1` … `goto_tab_9`, `last_tab`, `next_activity`, `command_palette`, `toggle_files`, `search_files`, `new_group`, `open_settings`, `focus_left`, `focus_right`, `focus_up`, `focus_down`, `zoom_in`, `zoom_out`, `zoom_reset`, `ui_zoom_in`, `ui_zoom_out`, `ui_zoom_reset`, `scroll_page_up`, `scroll_page_down`, `show_help`.
 
 The easiest way to rebind is the **keyboard shortcuts** window (`Ctrl+Shift+/`). Click a shortcut and press the new one (`Backspace` removes it, `Esc` cancels), or `+` to add another. It writes the `[keybindings]` line for you and keeps the rest of the file as it is. Shortcuts bound to more than one action are shown in red.
 
@@ -297,6 +299,10 @@ focus_border_width = 1.0
 # the pane, "none" ignores it.
 bell = "badge"
 
+# Ask before "Reset tab" kills a program running in the tab (vim, a build, ssh...).
+# Resetting a tab that is just at its prompt never asks. Windows never asks.
+confirm_reset = true
+
 [font]
 # Font family; defaults to the system monospace font.
 # family = "JetBrains Mono"
@@ -341,6 +347,7 @@ wrap = true
 # close_tab = []                           # unbind
 # duplicate_tab = "alt+shift+n"            # unbound by default
 # new_group = "alt+g"                      # unbound by default
+# reset_tab = "ctrl+shift+r"               # unbound by default
 # goto_tab_1 = "alt+1"                     # Linux/Windows: most actions are unbound
 
 # Extra profiles, added after the auto-discovered shells.

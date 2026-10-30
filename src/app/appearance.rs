@@ -164,11 +164,8 @@ impl App {
             color: None,
         };
         let cwd = path.parent().map(PathBuf::from);
-        if let Some(id) = self.spawn_tab(profile, cwd, None)
-            && let Some(tab) = self.tabs.get_mut(&id)
-        {
-            tab.custom_title = Some("Settings".into());
-        }
+        let recipe = super::LaunchRecipe::new(profile, cwd).with_title(Some("Settings".into()));
+        self.spawn_tab(recipe, None);
     }
 
     /// Background a tab actually renders with (an OSC 11 override, else the theme's).

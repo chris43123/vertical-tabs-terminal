@@ -9,12 +9,14 @@ mod events;
 mod files;
 mod input;
 mod previews;
+mod recipe;
 mod side;
 mod tab;
 mod tabs;
 
 pub use files::FilesPanel;
 pub use previews::Previews;
+pub use recipe::LaunchRecipe;
 pub use side::SidePanels;
 pub use tab::{Content, RenameTarget, Tab, TabDrag};
 
@@ -30,6 +32,7 @@ use crate::config::keybinds::Keybinds;
 use crate::config::watch::Watcher;
 use crate::render::{Fonts, Palette};
 use crate::terminal::profiles::{self, Profile};
+use crate::terminal::session::Source;
 use crate::theme::{self, Patch, Theme, UiColors};
 use crate::workspace::{TabId, Workspace};
 
@@ -57,8 +60,10 @@ pub struct App {
     pub ui_zoom: f32,
     pub keybinds: Keybinds,
 
-    tx: Sender<(TabId, TermEvent)>,
-    rx: Receiver<(TabId, TermEvent)>,
+    tx: Sender<(Source, TermEvent)>,
+    rx: Receiver<(Source, TermEvent)>,
+    /// Generation of the next session started (see [`Source`]).
+    next_generation: u64,
     ctx: egui::Context,
 
     /// Which of the sidebar and files panel are shown.
@@ -79,6 +84,8 @@ pub struct App {
     pub switcher: Option<crate::ui::Switcher>,
     /// The keyboard shortcuts window.
     pub help: Option<crate::ui::Help>,
+    /// "Reset this tab?" while it waits for an answer.
+    pub reset_prompt: Option<crate::ui::ResetPrompt>,
     closed: Vec<ClosedTab>,
     /// Focused tab as of the last frame, and the one before it.
     last_focused: Option<TabId>,
@@ -155,6 +162,7 @@ impl App {
             keybinds,
             tx,
             rx,
+            next_generation: 1,
             ctx,
             side,
             renaming: None,
@@ -165,6 +173,7 @@ impl App {
             scroll_to_focused: false,
             switcher: None,
             help: None,
+            reset_prompt: None,
             closed: Vec::new(),
             last_focused: None,
             prev_focused: None,
@@ -316,6 +325,7 @@ impl eframe::App for App {
         self.panes(ui);
         self.switcher_ui(&ctx);
         self.help_ui(&ctx);
+        self.reset_prompt_ui(&ctx);
         self.problems_banner(&ctx);
         self.toast_ui(&ctx);
         self.track_focus();
