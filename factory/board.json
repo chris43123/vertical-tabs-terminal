@@ -58,7 +58,7 @@
       "id": "003-favorite-sessions",
       "title": "Favorite directories as pinned sessions",
       "branch": "factory/003-favorite-sessions",
-      "stage": "approve",
+      "stage": "needs-human",
       "round": 4,
       "reviews": {},
       "history": [
@@ -85,8 +85,8 @@
           "code": "PASS"
         }
       ],
-      "decision": null,
-      "note": "round 4 all PASS; approver deciding",
+      "decision": "ESCALATE",
+      "note": "round 4 all PASS; escalated: manual pass of the reworked UI and criteria 5, 8, 9, 10 not recorded",
       "updated": "2026-10-30T20:10:08Z"
     }
   ]
