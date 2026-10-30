@@ -74,6 +74,14 @@ impl FavoritesState {
         self.links.get(id).copied()
     }
 
+    /// The favorite whose own tab `tab` is (its row in the sidebar is that favorite's).
+    pub fn favorite_for_tab(&self, tab: TabId) -> Option<FavId> {
+        self.links
+            .iter()
+            .find(|&(_, &t)| t == tab)
+            .map(|(id, _)| id.clone())
+    }
+
     /// Take a freshly read list: links and exited marks of ids that survive stay, and every
     /// path is checked again.
     fn replace(&mut self, list: Favorites) {
@@ -484,7 +492,12 @@ mod tests {
         // Same name, separate links.
         assert_eq!(s.linked_tab(&a), Some(1));
         assert_eq!(s.linked_tab(&b), Some(2));
+        // Renaming tab 1 or 2 edits that favorite (not some row that isn't drawn).
+        assert_eq!(s.favorite_for_tab(1), Some(a.clone()));
+        assert_eq!(s.favorite_for_tab(2), Some(b.clone()));
+        assert_eq!(s.favorite_for_tab(9), None);
         s.unlink(1, true);
+        assert_eq!(s.favorite_for_tab(1), None);
         assert_eq!(s.status(&a), FavStatus::Exited);
         s.unlink(2, false);
         assert_eq!(s.status(&b), FavStatus::Idle);

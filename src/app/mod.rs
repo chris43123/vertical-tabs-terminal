@@ -345,6 +345,7 @@ impl eframe::App for App {
             return;
         }
 
+        self.drop_undrawn_rename();
         if self.side.hidden {
             let area = ui.available_rect_before_wrap();
             self.zen_sidebar(&ctx, area);

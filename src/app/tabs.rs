@@ -212,6 +212,11 @@ impl App {
                 tab.custom_title = closed.custom_title;
             }
             self.ws.reorder(id, closed.index);
+            // A favorite's tab came back (and relinked): its row leads, outside any folder.
+            if self.favorites.favorite_for_tab(id).is_some() {
+                self.ws.set_group(id, None);
+                self.sync_favorite_order();
+            }
         }
     }
 
@@ -234,7 +239,13 @@ impl App {
     }
 
     /// Start renaming a tab in the sidebar (peeking it open if collapsed).
+    /// A favorite's own tab has no row of its own to edit in: its name is the favorite's, so
+    /// this opens the favorite's edit dialog instead.
     pub fn start_rename(&mut self, id: TabId) {
+        if let Some(fav) = self.favorites.favorite_for_tab(id) {
+            self.start_edit_favorite(&fav);
+            return;
+        }
         let current = self
             .tabs
             .get(&id)
@@ -280,7 +291,16 @@ impl App {
     }
 
     /// Start renaming the split view holding `id`.
+    /// A split under a favorite is named by the favorite: that opens its edit dialog.
     pub fn start_view_rename(&mut self, id: TabId) {
+        if let Some(g) = self
+            .favorite_tabs()
+            .into_iter()
+            .find(|g| g.tab == id || g.siblings.contains(&id))
+        {
+            self.start_edit_favorite(&g.id);
+            return;
+        }
         let Some(v) = self.ws.view_of(id) else {
             return;
         };

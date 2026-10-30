@@ -276,6 +276,19 @@ impl App {
         }
     }
 
+    /// A rename whose target has no editable row (a favorite's own tab, or a split now under
+    /// a favorite) would never finish and would keep the sidebar peeked open: drop it.
+    pub(crate) fn drop_undrawn_rename(&mut self) {
+        let undrawn = match self.renaming.as_ref().map(|(r, _)| *r) {
+            Some(RenameTarget::Tab(id)) => self.favorites.favorite_for_tab(id).is_some(),
+            Some(RenameTarget::View(id)) => self.tabs_under_favorites().contains(&id),
+            _ => false,
+        };
+        if undrawn {
+            self.renaming = None;
+        }
+    }
+
     /// Rows to show: folder headers, split view headers, and tabs (a collapsed folder still
     /// shows its active tab).
     fn sidebar_rows(&self) -> Vec<Row> {
