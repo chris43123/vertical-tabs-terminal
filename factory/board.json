@@ -53,6 +53,58 @@
       "decision": "APPROVE",
       "note": "merged to main (eee9e52)",
       "updated": "2026-10-30T15:11:53Z"
+    },
+    {
+      "id": "003-favorite-sessions",
+      "title": "Favorite directories as pinned sessions",
+      "branch": "factory/003-favorite-sessions",
+      "stage": "merged",
+      "round": 5,
+      "reviews": {},
+      "history": [
+        {
+          "security": "CHANGES",
+          "ux": "CHANGES",
+          "ui": "CHANGES",
+          "code": "CHANGES"
+        },
+        {
+          "security": "PASS",
+          "ux": "PASS",
+          "ui": "PASS",
+          "code": "PASS"
+        },
+        {
+          "security": "SKIPPED",
+          "design": "CHANGES",
+          "code": "PASS"
+        },
+        {
+          "security": "SKIPPED",
+          "design": "PASS",
+          "code": "PASS"
+        },
+        {
+          "security": "PASS",
+          "design": "PASS",
+          "code": "PASS"
+        }
+      ],
+      "decision": "ESCALATE",
+      "note": "approved by human",
+      "updated": "2026-10-30T20:10:08Z"
+    },
+    {
+      "id": "004-session-restore",
+      "title": "Restore open tabs on launch",
+      "branch": "factory/004-session-restore",
+      "stage": "spec",
+      "round": 0,
+      "reviews": {},
+      "history": [],
+      "decision": null,
+      "note": "spec done; build restarts from main after board merge",
+      "updated": "2026-10-30T21:07:55Z"
     }
   ]
 }
