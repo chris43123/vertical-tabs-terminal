@@ -56,3 +56,37 @@ Pushed: origin/factory/002-launch-recipes-reset at c0a4c38
 - On Windows the job object also ends grandchildren when a tab is closed (handle close kills the job).
 - If respawning fails during a reset, the old (already signalled) session stays and its exit
   closes the tab as before; the failure is reported in the problems banner.
+
+## Human feedback (human.md, 2026-10-30T15:06:39Z)
+Commits: c1960c6 Kill only the recorded processes on Reset, after the new shell starts,
+eee9e52 Bind Reset tab to Cmd+Shift+R on macOS
+Checks: fmt ✓  clippy ✓  test ✓ (121 passed); clippy also clean for
+`x86_64-pc-windows-msvc` and `x86_64-unknown-linux-gnu`; kill tests run 6x, no flakes.
+Pushed: origin/factory/002-launch-recipes-reset at eee9e52
+
+### Acceptance criteria
+1-4, 10. ✓ as before (4 now: `keybinds::tests::reset_tab_is_bound_on_macos_only`).
+5-9. ✓ manual, passed on macOS by the human on the round-1 build (reset in place,
+   `sleep &` + vim killed, `confirm_reset = false`, duplicate/reopen, idle CPU, palette).
+6. Also ✓ `terminal::session::tests::kill_session_hangs_up_then_kills_what_ignored_it` now
+   reaches the SIGKILL path: it waits until the HUP-ignoring child is running (marker file
+   written after its trap), checks it alone survives the hangup, then that the delayed pass
+   ends it. Windows `ping -t` not run (no Windows machine; accepted by the human).
+
+### Review responses
+- human #1 (windows-sys direct dependency): accepted as is, no change.
+- human #2 (pid reuse in the SIGKILL pass): fixed in c1960c6. The first pass records each
+  session member as (pid, start time) (Linux `/proc/<pid>/stat` field 22, macOS
+  `proc_bsdinfo.pbi_start_tv*`) and SIGHUPs it. The SIGKILL pass signals only those still
+  alive with the same start time; nothing is looked up by the old shell's pid later. The
+  shell's start time is recorded at spawn, so a shell that already exited (pid maybe reused)
+  is never signalled (this also covers the code/security review note). New test
+  `kill_pass_skips_a_reused_pid`.
+- human #3 (Windows Job Object, close-tab behaviour): accepted as is, no change.
+- human #4 (spawn before kill): fixed in c1960c6. `reset_tab_now` starts the new session
+  first; on failure it returns with the error in the problems banner and the old session
+  untouched. Only then is the old tree killed and the content swapped.
+- human: `reset_tab` default `cmd+shift+r` on macOS only: done in eee9e52 (keybinds, README
+  table/Features/config copy, `config.example.toml`; help shows it from the keymap).
+- code review note (reopen sets custom_title twice): fixed in c1960c6, only previews take
+  `closed.custom_title` now.

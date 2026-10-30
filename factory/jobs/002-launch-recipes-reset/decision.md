@@ -1,51 +1,47 @@
-ESCALATE
+APPROVE
 
 ## Why
-All four round-1 reviews are PASS with no blocking points, and the diff stays inside
-the spec. Even so, this branch hits several of the "a human should weigh in" triggers.
-It adds new `unsafe` blocks: `killpg`, `getsid`, `getpgid`, `tcgetpgrp` and
-`proc_listallpids` on Unix, plus the Job Object FFI on Windows. It adds a direct
-dependency entry (`windows-sys` 0.59 in `Cargo.toml`), which is already in the lock
-through alacritty. It ships Windows-only code that was only cross-checked with clippy
-and never run. It also changes existing behaviour on Windows: closing a tab now ends
-grandchildren through `KILL_ON_JOB_CLOSE`. Finally, acceptance criteria 5-9 are
-GUI-only checks that build.md marks as not run, and criterion 6 (the process-tree
-kill) is only partly covered by a unit test that, per the security review, probably
-never reaches the SIGKILL escalation path.
+All four round-2 reviews (code, security, UI, UX) are PASS, and no blocking points
+were raised or declined. Round 1 was escalated because of the human-weigh-in triggers.
+human.md settles each of them. The direct `windows-sys` dependency and the untested
+Windows Job Object code, including the new close-tab behaviour, are accepted as is.
+The pid-reuse guardrail and spawn-before-kill were requested and are now built:
+c1960c6 records (pid, start time), the SIGKILL pass signals only processes that still
+match, and `reset_tab_now` starts the new session before it kills the old one. The
+human chose the `cmd+shift+r` default on macOS only, and eee9e52 adds it; Linux and
+Windows stay unbound. The human passed manual criteria 5-9 on macOS. Criterion 6's
+SIGKILL path is now covered by `kill_session_hangs_up_then_kills_what_ignored_it` and
+`kill_pass_skips_a_reused_pid`. The only new `unsafe` in round 2 is the macOS
+`proc_pidinfo` start-time read. The guardrail the human asked for needs it, and the
+security review checked it (`ret == size` before `assume_init`). The diff stays inside
+spec.md plus the human's additions. The worktree is clean, and all three commits are
+pushed.
 
 ## For the human
-- Decide on the new direct dependency `windows-sys` and its feature flags: `Cargo.toml:32-34`.
-- Review the `unsafe` process-group kill and the delayed SIGKILL re-scan, including the
-  pid-reuse note from the code and security reviews (skip `kill_tree` if the shell has
-  already exited): `src/terminal/session.rs:177-318`.
-- Review the Windows Job Object code, which compiles but was never run:
-  `src/terminal/session.rs:320-380`. Accept or reject the new close-tab behaviour on
-  Windows (grandchildren now die when a tab closes). If you have a Windows machine,
-  check criterion 6 with `ping -t`.
-- Optional, from the UX review: `reset_tab_now` kills the old session before it spawns
-  the new one, so a failed respawn closes the tab: `src/app/tabs.rs:126`.
-- Run manual criteria 5-9 in the GUI:
-  - 5: `cd /tmp`, rename the tab, Reset. The tab keeps its slot and title and the
-    prompt is back in the original dir.
-  - 6: run `sleep 1000 &` and then `vim`, Reset, confirm. `pgrep sleep` and
-    `pgrep vim` from another tab should find nothing.
-  - 7: with `confirm_reset = false`, no dialog appears.
-  - 8: Duplicate and Reopen closed tab behave as before.
-  - 9: idle CPU stays ~0%.
-  - Also search "reset" in the palette.
-- Run it: `cargo run` in .worktrees/002-launch-recipes-reset
+- Nothing blocking. The open notes are optional follow-ups. The `kill_tree` doc comment
+  is one 168-column line that should be re-wrapped (`src/terminal/session.rs:178-180`).
+  A process that ignores SIGHUP and forks during the 500 ms grace period can escape the
+  SIGKILL pass (security note). The README could also say that a background job at an
+  idle prompt is killed without asking (UX note).
+- Job 2 has to decide how to validate the recipe `command` when favorites supply it.
+- Optional re-check of the round-2 order change (new shell first, then kill): `cd /tmp`,
+  rename the tab, then press ⌘⇧R or pick Reset from the tab menu. Run it with `cargo run`
+  in .worktrees/002-launch-recipes-reset.
 
 ## Summary
 - Adds a `LaunchRecipe` (profile, resolved dir, optional command, custom title) to
   every terminal tab. The command is typed into the shell on its first output, and
   closed tabs keep their recipe.
-- Adds a "Reset tab" action (unbound, in the palette, the tab menu and help). It kills
-  the tab's process tree (Unix: SIGHUP to the session's groups, then a one-shot SIGKILL
-  after 500 ms; Windows: Job Object) and respawns the tab in place under the same
-  `TabId`. A generation tag drops the old session's late events. A modal asks for
-  confirmation when something is running.
+- Adds "Reset tab" to the palette, the tab menu and help: `cmd+shift+r` on macOS,
+  unbound elsewhere. It starts a fresh session from the recipe in place under the same
+  `TabId`, then kills the old process tree. Unix: SIGHUP to the recorded session
+  members, then a one-shot SIGKILL that checks start times. Windows: a Job Object. A
+  generation tag drops the old session's late events. A modal asks first when something
+  is running.
 - Adds the `confirm_reset` config key (default true) with full `vtt config` support,
   and updates README and `config.example.toml`.
 
 Commits:
 - c0a4c38 Add launch recipes and a Reset tab action
+- c1960c6 Kill only the recorded processes on Reset, after the new shell starts
+- eee9e52 Bind Reset tab to Cmd+Shift+R on macOS
