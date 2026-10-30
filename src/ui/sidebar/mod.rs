@@ -23,6 +23,9 @@ const FOLDER_HEIGHT: f32 = 28.0;
 const VIEW_HEIGHT: f32 = 24.0;
 /// How far a folder's tabs are indented.
 const FOLDER_INDENT: f32 = 12.0;
+/// Contrast kept by a dimmed name (a missing favorite, a tab not started yet) against
+/// the sidebar.
+const DIM_CONTRAST: f32 = 3.0;
 /// ANSI colors offered for folders.
 const FOLDER_COLORS: [(&str, u8); 6] = [
     ("Red", 1),

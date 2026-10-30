@@ -18,7 +18,7 @@ use crate::favorites::FavId;
 use crate::theme::mix;
 use crate::workspace::{Edge, TabId};
 
-use super::{Action, ROW_HEIGHT};
+use super::{Action, DIM_CONTRAST, ROW_HEIGHT};
 
 const FAV_HEIGHT: f32 = 26.0;
 const HEADER_HEIGHT: f32 = 20.0;
@@ -31,8 +31,6 @@ const MAX_SHARE: f32 = 0.85;
 /// Side of a favorite's tile in the expanded and the collapsed sidebar.
 const TILE_EXPANDED: f32 = 20.0;
 const TILE_COLLAPSED: f32 = 22.0;
-/// Contrast kept by a missing favorite's dimmed name against the sidebar.
-const DIM_CONTRAST: f32 = 3.0;
 
 /// Payload for dragging a favorite to reorder it.
 #[derive(Clone, Debug)]

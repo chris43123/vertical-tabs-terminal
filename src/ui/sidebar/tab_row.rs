@@ -13,7 +13,7 @@ use crate::theme::mix;
 use crate::ui::icons::Icon;
 use crate::workspace::{GroupId, TabId};
 
-use super::{Action, FOLDER_INDENT, ROW_HEIGHT};
+use super::{Action, DIM_CONTRAST, FOLDER_INDENT, ROW_HEIGHT};
 
 impl App {
     /// One sidebar row. Returns its rect.
@@ -131,7 +131,12 @@ impl App {
         );
 
         let text_color = if dormant {
-            c.raised_sidebar(0.45)
+            // Same dim as a missing favorite: faded, but never under the contrast floor.
+            crate::theme::ensure_contrast(
+                mix(visuals.text_color(), c.sidebar, 0.55),
+                c.sidebar,
+                DIM_CONTRAST.max(self.config.min_contrast),
+            )
         } else if focused || in_active {
             visuals.strong_text_color()
         } else {
