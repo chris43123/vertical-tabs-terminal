@@ -76,6 +76,9 @@ pub struct Session {
     /// PTY master fd, used to query the foreground process group.
     #[cfg(unix)]
     pty_fd: std::os::fd::RawFd,
+    /// The shell's pid and start time, so Reset never signals a process that reused its pid.
+    #[cfg(unix)]
+    shell: Option<kill::Proc>,
     /// Job object holding the shell and everything it starts, so Reset can end them all.
     #[cfg(windows)]
     job: Option<job::Job>,
@@ -158,6 +161,8 @@ impl Session {
             child_pid,
             #[cfg(unix)]
             pty_fd,
+            #[cfg(unix)]
+            shell: child_pid.and_then(|pid| kill::Proc::of(pid as libc::pid_t)),
             #[cfg(windows)]
             job,
             generation,
@@ -170,15 +175,12 @@ impl Session {
     }
 
     /// End everything running in this session: the shell, the foreground program and
-    /// background jobs. Unix: every process group in the shell's session gets SIGHUP, and
-    /// SIGKILL a moment later if it ignored that (from a one-shot thread, so the UI never
-    /// waits). Processes that left the session with `setsid` survive by design. Windows: the
+    /// background jobs. Unix: every process in the shell's session gets SIGHUP, and SIGKILL
+    /// a moment later if it ignored that (from a one-shot thread, so the UI never waits). Processes that left the session with `setsid` survive by design. Windows: the
     /// job object is terminated. The session itself still has to be dropped.
     pub fn kill_tree(&self) {
         #[cfg(unix)]
-        if let Some(pid) = self.child_pid {
-            kill::session(pid as libc::pid_t, self.pty_fd);
-        }
+        kill::session(self.shell, self.pty_fd);
         #[cfg(windows)]
         if let Some(job) = &self.job {
             job.terminate();
@@ -233,55 +235,123 @@ mod kill {
     /// Time a process gets to exit after SIGHUP before it's killed.
     const GRACE: Duration = Duration::from_millis(500);
 
-    /// Hang up every process group in session `sid` (the shell's pid: alacritty starts it with
-    /// `setsid`), plus the terminal's foreground group, then kill what's left after [`GRACE`].
-    pub fn session(sid: pid_t, pty_fd: std::os::fd::RawFd) {
-        // Never signal init's session, or (killpg with 0) our own group.
-        if sid <= 1 {
+    /// One process, told apart from a later one that reuses its pid by its start time.
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+    pub struct Proc {
+        pub pid: pid_t,
+        pub start: u64,
+    }
+
+    impl Proc {
+        pub fn of(pid: pid_t) -> Option<Self> {
+            Some(Self {
+                pid,
+                start: start_time(pid)?,
+            })
+        }
+
+        /// Signal it if it is still the same process.
+        fn signal(self, sig: libc::c_int) {
+            if self.pid > 1 && start_time(self.pid) == Some(self.start) {
+                // SAFETY: kill only sends a signal; a gone pid returns ESRCH.
+                unsafe { libc::kill(self.pid, sig) };
+            }
+        }
+    }
+
+    /// End session `shell` (alacritty starts the shell with `setsid`, so its pid is the
+    /// session id): SIGHUP every process in it now, then SIGKILL, after [`GRACE`], exactly
+    /// those of them still alive. Nothing is looked up by the shell's pid again later, so a
+    /// reused pid is never signalled.
+    pub fn session(shell: Option<Proc>, pty_fd: std::os::fd::RawFd) {
+        let Some(shell) = shell.filter(|s| s.pid > 1) else {
+            return;
+        };
+        if start_time(shell.pid) != Some(shell.start) {
+            // The shell is gone (and its pid may belong to someone else now).
             return;
         }
-        let groups = groups(sid, pty_fd);
-        signal(&groups, libc::SIGHUP);
-        // SIGCONT so stopped jobs (Ctrl+Z) act on the hangup.
-        signal(&groups, libc::SIGCONT);
+        let procs = members(shell.pid);
+        if procs.is_empty() {
+            // No process table here: hang up the foreground group and the shell's.
+            // SAFETY: tcgetpgrp only reads the fd; killpg only sends a signal.
+            unsafe {
+                let fg = libc::tcgetpgrp(pty_fd);
+                for g in [fg, shell.pid] {
+                    if g > 1 {
+                        libc::killpg(g, libc::SIGHUP);
+                    }
+                }
+            }
+            return;
+        }
+        hang_up(&procs);
         std::thread::spawn(move || {
             std::thread::sleep(GRACE);
-            // Re-scan: the session id stays reserved while any member lives, so whatever is
-            // still in it now is what ignored the hangup.
-            signal(&groups_in_session(sid), libc::SIGKILL);
+            kill_remaining(&procs);
         });
     }
 
-    fn signal(groups: &[pid_t], sig: libc::c_int) {
-        for &g in groups {
-            // SAFETY: killpg only sends a signal; a stale group just returns ESRCH.
-            unsafe { libc::killpg(g, sig) };
+    pub(super) fn hang_up(procs: &[Proc]) {
+        for p in procs {
+            p.signal(libc::SIGHUP);
+            // So stopped jobs (Ctrl+Z) act on the hangup.
+            p.signal(libc::SIGCONT);
         }
     }
 
-    fn groups(sid: pid_t, pty_fd: std::os::fd::RawFd) -> Vec<pid_t> {
-        let mut groups = groups_in_session(sid);
-        // SAFETY: tcgetpgrp only reads the fd; an invalid fd returns -1.
-        let fg = unsafe { libc::tcgetpgrp(pty_fd) };
-        groups.extend([fg, sid].into_iter().filter(|g| *g > 0));
-        groups.sort_unstable();
-        groups.dedup();
-        groups
+    pub(super) fn kill_remaining(procs: &[Proc]) {
+        for p in procs {
+            p.signal(libc::SIGKILL);
+        }
     }
 
-    /// Process groups with a member in session `sid`.
-    pub(super) fn groups_in_session(sid: pid_t) -> Vec<pid_t> {
-        let mut groups: Vec<pid_t> = all_pids()
+    /// Processes in session `sid`.
+    pub(super) fn members(sid: pid_t) -> Vec<Proc> {
+        all_pids()
             .into_iter()
             // SAFETY: getsid only reads process state; a gone pid returns -1.
-            .filter(|&pid| pid > 0 && unsafe { libc::getsid(pid) } == sid)
-            // SAFETY: getpgid only reads process state; a gone pid returns -1.
-            .map(|pid| unsafe { libc::getpgid(pid) })
-            .filter(|&g| g > 0)
-            .collect();
-        groups.sort_unstable();
-        groups.dedup();
-        groups
+            .filter(|&pid| pid > 1 && unsafe { libc::getsid(pid) } == sid)
+            .filter_map(Proc::of)
+            .collect()
+    }
+
+    /// When process `pid` started, in the kernel's own units.
+    #[cfg(target_os = "linux")]
+    pub fn start_time(pid: pid_t) -> Option<u64> {
+        let stat = std::fs::read_to_string(format!("/proc/{pid}/stat")).ok()?;
+        // The name (field 2) may contain spaces and parentheses; the fields after it don't.
+        let rest = &stat[stat.rfind(')')? + 1..];
+        // Field 22 is the start time; `rest` begins at field 3.
+        rest.split_whitespace().nth(19)?.parse().ok()
+    }
+
+    /// When process `pid` started, in microseconds since the epoch.
+    #[cfg(target_os = "macos")]
+    pub fn start_time(pid: pid_t) -> Option<u64> {
+        let mut info = std::mem::MaybeUninit::<libc::proc_bsdinfo>::zeroed();
+        let size = std::mem::size_of::<libc::proc_bsdinfo>() as libc::c_int;
+        // SAFETY: `info` is a correctly sized, writable buffer for PROC_PIDTBSDINFO.
+        let ret = unsafe {
+            libc::proc_pidinfo(
+                pid,
+                libc::PROC_PIDTBSDINFO,
+                0,
+                info.as_mut_ptr().cast(),
+                size,
+            )
+        };
+        if ret != size {
+            return None;
+        }
+        // SAFETY: the kernel filled the struct.
+        let info = unsafe { info.assume_init() };
+        Some(info.pbi_start_tvsec * 1_000_000 + info.pbi_start_tvusec)
+    }
+
+    #[cfg(not(any(target_os = "linux", target_os = "macos")))]
+    pub fn start_time(_pid: pid_t) -> Option<u64> {
+        None
     }
 
     #[cfg(target_os = "linux")]
@@ -310,7 +380,6 @@ mod kill {
         pids
     }
 
-    /// Elsewhere only the foreground group and the shell's own are signalled.
     #[cfg(not(any(target_os = "linux", target_os = "macos")))]
     fn all_pids() -> Vec<pid_t> {
         Vec::new()
@@ -408,15 +477,16 @@ fn window_size(size: GridSize, cell_px: (u16, u16)) -> WindowSize {
 #[cfg(all(test, any(target_os = "linux", target_os = "macos")))]
 mod tests {
     use std::os::unix::process::CommandExt;
+    use std::path::Path;
+    use std::process::{Child, Command};
     use std::time::{Duration, Instant};
 
     use super::kill;
 
-    #[test]
-    fn kill_session_ends_background_jobs_and_ignorers() {
-        // A session leader like the shell, with a background job and a child that ignores SIGHUP.
-        let mut cmd = std::process::Command::new("/bin/sh");
-        cmd.args(["-c", "sleep 300 & (trap '' HUP; sleep 300) & wait"]);
+    /// Run `script` under `/bin/sh` as a session leader, like alacritty starts the shell.
+    fn session_leader(script: &str, marker: &Path) -> Child {
+        let mut cmd = Command::new("/bin/sh");
+        cmd.args(["-c", script]).env("MARK", marker);
         // SAFETY: setsid is async-signal-safe.
         unsafe {
             cmd.pre_exec(|| {
@@ -424,23 +494,69 @@ mod tests {
                 Ok(())
             });
         }
-        let mut child = cmd.spawn().unwrap();
-        let sid = child.id() as libc::pid_t;
+        cmd.spawn().unwrap()
+    }
+
+    fn wait_until(what: &str, mut done: impl FnMut() -> bool) {
         let start = Instant::now();
-        while kill::groups_in_session(sid).is_empty() && start.elapsed() < Duration::from_secs(5) {
+        while !done() {
+            assert!(
+                start.elapsed() < Duration::from_secs(5),
+                "timed out: {what}"
+            );
             std::thread::sleep(Duration::from_millis(20));
         }
-        assert!(!kill::groups_in_session(sid).is_empty());
+    }
 
-        kill::session(sid, -1);
-        let _ = child.wait();
-        let start = Instant::now();
-        while !kill::groups_in_session(sid).is_empty() && start.elapsed() < Duration::from_secs(5) {
-            std::thread::sleep(Duration::from_millis(50));
-        }
-        assert!(
-            kill::groups_in_session(sid).is_empty(),
-            "processes survived"
+    #[test]
+    fn kill_session_hangs_up_then_kills_what_ignored_it() {
+        let marker = std::env::temp_dir().join(format!("vtt-kill-test-{}", std::process::id()));
+        let _ = std::fs::remove_file(&marker);
+        // A background job, and one that ignores SIGHUP: it marks the file once the trap is
+        // set, then becomes `sleep` (exec keeps the ignored signal).
+        let mut child = session_leader(
+            "sleep 300 & (trap '' HUP; touch \"$MARK\"; exec sleep 300) & wait",
+            &marker,
         );
+        let sid = child.id() as libc::pid_t;
+        wait_until("the HUP-ignoring child to start", || marker.exists());
+        wait_until("three processes in the session", || {
+            kill::members(sid).len() >= 3
+        });
+
+        kill::session(kill::Proc::of(sid), -1);
+        let _ = child.wait();
+        // The hangup ended the shell and the job, but not the one ignoring it...
+        std::thread::sleep(Duration::from_millis(200));
+        let left = kill::members(sid);
+        assert_eq!(
+            left.len(),
+            1,
+            "only the HUP-ignoring child is left: {left:?}"
+        );
+        // ...which the delayed SIGKILL ends.
+        wait_until("the SIGKILL pass", || kill::members(sid).is_empty());
+        let _ = std::fs::remove_file(&marker);
+    }
+
+    #[test]
+    fn kill_pass_skips_a_reused_pid() {
+        let mut child = Command::new("sleep").arg("300").spawn().unwrap();
+        let pid = child.id() as libc::pid_t;
+        let real = kill::Proc::of(pid).unwrap();
+        assert_eq!(kill::start_time(pid), Some(real.start));
+        // Same pid, different start time: a different process as far as the kill is concerned.
+        let other = kill::Proc {
+            pid,
+            start: real.start + 1,
+        };
+        kill::kill_remaining(&[other]);
+        std::thread::sleep(Duration::from_millis(100));
+        assert!(
+            child.try_wait().unwrap().is_none(),
+            "a reused pid was killed"
+        );
+        kill::kill_remaining(&[real]);
+        assert!(child.wait().is_ok());
     }
 }

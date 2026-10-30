@@ -120,25 +120,27 @@ impl App {
         self.reset_tab_now(id);
     }
 
-    /// Kill everything running in tab `id` and start its recipe again in place: same id, so
+    /// Start tab `id`'s recipe again in place and kill everything that ran in it: same id, so
     /// its position, split, folder, custom title and zoom stay. The old session's late events
     /// carry an old generation and are dropped, so its exit doesn't close the tab.
     pub fn reset_tab_now(&mut self, id: TabId) {
         let Some(tab) = self.tabs.get(&id) else {
             return;
         };
-        let (Some(recipe), Some(old)) = (tab.recipe.clone(), tab.session()) else {
+        let (Some(recipe), Some(size)) = (tab.recipe.clone(), tab.session().map(|s| s.size)) else {
             return;
         };
-        let size = old.size;
-        old.kill_tree();
+        // Start the new shell first: if that fails (reported in the banner), the tab and its
+        // old session stay as they were.
         let Some(session) = self.start_session(id, &recipe, size) else {
-            // Leave the (dying) old session; its exit closes the tab as usual.
             return;
         };
         let Some(tab) = self.tabs.get_mut(&id) else {
             return;
         };
+        if let Some(old) = tab.session() {
+            old.kill_tree();
+        }
         // Dropping the old session stops its IO thread and hangs up the PTY.
         tab.content = Content::Term(session);
         tab.osc_title = None;
@@ -200,7 +202,8 @@ impl App {
             (None, None) => None,
         };
         if let Some(id) = id {
-            if let Some(tab) = self.tabs.get_mut(&id) {
+            // A terminal got its title from the recipe; a preview has none.
+            if let Some(tab) = self.tabs.get_mut(&id).filter(|t| t.recipe.is_none()) {
                 tab.custom_title = closed.custom_title;
             }
             self.ws.reorder(id, closed.index);
