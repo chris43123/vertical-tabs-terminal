@@ -98,13 +98,29 @@
       "id": "004-session-restore",
       "title": "Restore open tabs on launch",
       "branch": "factory/004-session-restore",
-      "stage": "spec",
-      "round": 0,
+      "stage": "merged",
+      "round": 3,
       "reviews": {},
-      "history": [],
-      "decision": null,
-      "note": "spec done; build restarts from main after board merge",
-      "updated": "2026-10-30T21:07:55Z"
+      "history": [
+        {
+          "security": "PASS",
+          "design": "CHANGES",
+          "code": "PASS"
+        },
+        {
+          "security": "SKIPPED",
+          "design": "PASS",
+          "code": "PASS"
+        },
+        {
+          "security": "PASS",
+          "design": "PASS",
+          "code": "PASS"
+        }
+      ],
+      "decision": "APPROVE",
+      "note": "merged to main (7d6bfc0)",
+      "updated": "2026-10-30T21:33:35Z"
     }
   ]
 }
