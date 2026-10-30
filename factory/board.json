@@ -58,13 +58,9 @@
       "id": "003-favorite-sessions",
       "title": "Favorite directories as pinned sessions",
       "branch": "factory/003-favorite-sessions",
-      "stage": "review",
+      "stage": "approve",
       "round": 4,
-      "reviews": {
-        "security": "SKIPPED",
-        "design": "pending",
-        "code": "pending"
-      },
+      "reviews": {},
       "history": [
         {
           "security": "CHANGES",
@@ -73,14 +69,25 @@
           "code": "CHANGES"
         },
         {
+          "security": "PASS",
+          "ux": "PASS",
+          "ui": "PASS",
+          "code": "PASS"
+        },
+        {
           "security": "SKIPPED",
           "design": "CHANGES",
+          "code": "PASS"
+        },
+        {
+          "security": "SKIPPED",
+          "design": "PASS",
           "code": "PASS"
         }
       ],
       "decision": null,
-      "note": "paused by the human before round 4 finished; re-run design and code reviews for round 4 to resume",
-      "updated": "2026-10-30T17:17:25Z"
+      "note": "round 4 all PASS; approver deciding",
+      "updated": "2026-10-30T20:10:08Z"
     }
   ]
 }
