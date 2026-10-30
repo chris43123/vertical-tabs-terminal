@@ -105,6 +105,8 @@ pub struct App {
     last_cwd_check: Instant,
     /// Highlighting and rendering state shared by preview panes.
     pub previews: Previews,
+    /// The "Copied …" note, while it is shown.
+    pub toast: Option<crate::ui::Toast>,
 }
 
 impl App {
@@ -179,6 +181,7 @@ impl App {
             files,
             last_cwd_check: Instant::now(),
             previews,
+            toast: None,
         };
         app.new_tab(0, None);
         app
@@ -314,6 +317,7 @@ impl eframe::App for App {
         self.switcher_ui(&ctx);
         self.help_ui(&ctx);
         self.problems_banner(&ctx);
+        self.toast_ui(&ctx);
         self.track_focus();
         self.hide_pointer_while_typing(&ctx);
         self.update_window_title();

@@ -483,7 +483,10 @@ impl App {
             Action::Cd(p) => self.cd_focused(&p),
             Action::NewTabIn(p) => self.new_tab_in(p),
             Action::InsertPath(p) => self.insert_path(&p),
-            Action::CopyPath(p) => self.set_clipboard(p.to_string_lossy().into_owned()),
+            Action::CopyPath(p) => {
+                let path = p.to_string_lossy().into_owned();
+                self.copy_with_toast(path, "Copied the path".into(), None);
+            }
             Action::OpenExternal(p) => {
                 if let Err(err) = crate::platform::open_with_default_app(&p) {
                     crate::diag::warn(err);

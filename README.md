@@ -21,7 +21,7 @@ Inspired by Warp, minus the weight: Warp's good ideas (a file tree that follows 
 - **Vertical tabs.** The sidebar can be collapsed to an icon strip, or hidden entirely (zen mode, `Ctrl+B`) and peeked by hovering the left window edge (`Ctrl+\` in zen mode switches the peek between tabs and files).
 - **Folders.** Group tabs into named, colored folders that collapse, Zen-style (see [Folders](#folders)).
 - **Files panel.** A file tree of the focused shell's directory sits between the tabs and the terminals, and follows you as you `cd` (see [Files and previews](#files-and-previews)).
-- **File previews.** Click a file to open it in a pane next to the terminal: rendered Markdown, syntax-highlighted code and JSON, images.
+- **File previews.** Click a file to open it in a pane next to the terminal: rendered Markdown, syntax-highlighted code and JSON, images. Copy the whole file in one click, select lines by their numbers, or copy a `path:12-40` reference for an agent.
 - **Git at a glance.** The files panel shows the branch, commits ahead/behind, and changed files highlighted in green.
 - **File search.** Fuzzy-find any file in the project from the files panel.
 - **Hover a tab** for a moment to see its full working directory and the program running in it.
@@ -82,6 +82,7 @@ On Linux and Windows, vtt only binds the shortcuts terminals conventionally use 
 | Open settings file | `Ctrl+,` | `⌘,` |
 | Keyboard shortcuts: every shortcut and mouse gesture, click one to rebind it | `Ctrl+Shift+/` (`Ctrl+?`) | `⌘⇧/` (`⌘?`) |
 | Copy / paste | `Ctrl+Shift+C` / `Ctrl+Shift+V`, plus `Ctrl+V` | `⌘C` / `⌘V` |
+| Select all / copy in a focused preview | `Ctrl+A` / `Ctrl+C` or `Ctrl+Shift+C` | `⌘A` / `⌘C` |
 
 `Ctrl+C` copies when text is selected; otherwise it sends an interrupt as usual. Set `copy_on_select = true` to copy as soon as you finish selecting with the mouse. Pane-focus and next/previous-tab keys pass through to the shell when there is nothing to move to (a single tab, or no pane in that direction).
 
@@ -114,6 +115,12 @@ Previews are tabs like any other: drag them, split them, close them, reopen them
 
 - **Markdown** renders with headings, lists, tables, links, local images, and highlighted code blocks. **Source** in the preview toolbar shows the raw text.
 - **Code and text** are syntax-highlighted in your theme's colors, with line numbers. Long lines wrap at word boundaries so narrow panes stay readable; **Wrap** in the toolbar switches that off (and `wrap = false` under `[files]` makes it the default). That covers Rust, Python, JS/TS, Go, C/C++, shell, TOML, YAML, JSON and many more. Minified JSON is reformatted for reading.
+- **Copying.** **Copy** in the toolbar copies the selection, or the whole file when nothing is selected (for rendered markdown, its source). A short note at the bottom of the pane confirms what was copied ("Copied 3,000 lines"), or says so if the clipboard couldn't be written. In code and text (and markdown source):
+  - Drag to select, `Shift+click` to extend, double-click a word, triple-click a line. The selection stays put however far you scroll, and dragging near or past the top or bottom edge scrolls, faster the further out you go (sideways too when lines don't wrap).
+  - **Line numbers select whole lines:** click one to select that line, `Shift+click` another to select everything in between (lines 1 to 3000 in two clicks), or drag down the numbers.
+  - `Ctrl+A` / `Ctrl+C` (`⌘A` / `⌘C`) select all and copy while the preview is focused; `Esc` clears the selection.
+  - **Right-click** for Copy, Copy all and **Copy reference**, which copies `path:12-40` (or `path:12`) for the selected lines, the form editors and coding agents understand.
+  - Rendered markdown keeps its own text selection, and dragging it near the edge scrolls too. To copy a long passage, use **Source** and the line numbers, or **Copy** for the whole file.
 - **Images** (PNG, JPEG, GIF, WebP) are shown fitted to the pane.
 - Binary and very large files show their size and a button to open them with the default app.
 
@@ -319,8 +326,8 @@ show_hidden = false
 wrap = true
 
 # Inline color overrides, applied on top of the theme. Same keys as a theme file:
-# foreground, background, cursor, selection, ansi = [16 colors], colorN (any index 0-255),
-# and [colors.ui] accent / sidebar.
+# foreground, background, cursor, selection, selection_foreground, ansi = [16 colors],
+# colorN (any index 0-255), and [colors.ui] accent / sidebar.
 [colors]
 # background = "#101010"
 # color4 = "#7aa2f7"
@@ -368,6 +375,7 @@ Theme files come in two formats:
   background = "#1a1b26"
   cursor = "#c0caf5"
   selection = "#33467c"
+  selection_foreground = "#c0caf5"   # optional; see below
   ansi = ["#15161e", "#f7768e", "#9ece6a", "#e0af68", "#7aa2f7", "#bb9af7", "#7dcfff", "#a9b1d6",
           "#414868", "#f7768e", "#9ece6a", "#e0af68", "#7aa2f7", "#bb9af7", "#7dcfff", "#c0caf5"]
   color232 = "#101010"   # any palette index
@@ -375,9 +383,11 @@ Theme files come in two formats:
   accent = "#7aa2f7"     # optional; defaults to color4
   sidebar = "#16161e"    # optional; defaults to a shade of the background
   ```
-- **kitty format** (any other extension). `background`, `foreground`, `cursor`, `selection_background`, `colorN` and `active_border_color` (used as the accent) are read; everything else is ignored. Existing kitty themes and generated theme files therefore work unchanged.
+- **kitty format** (any other extension). `background`, `foreground`, `cursor`, `selection_background`, `selection_foreground`, `colorN` and `active_border_color` (used as the accent) are read; everything else is ignored. Existing kitty themes and generated theme files therefore work unchanged.
 
 The sidebar, pane headers and palette derive their colors from the theme, so light themes work too.
+
+Selected text stays readable, in terminals and previews alike. With `selection_foreground` in the theme, all selected text uses it (as in kitty). Without it, text keeps its color when that reads well on the selection, and otherwise switches to the theme's foreground or background, whichever contrasts more. `min_contrast` applies on top.
 
 **Live reload.** The config file and the active theme file are checked about once a second. Edits apply immediately to every tab and the UI. A config with a syntax error is reported on stderr and ignored until it's fixed.
 
@@ -403,6 +413,7 @@ foreground = "{{colors.on_surface.default.hex}}"
 background = "{{colors.surface.default.hex}}"
 cursor = "{{colors.on_surface.default.hex}}"
 selection = "{{colors.secondary_container.default.hex}}"
+selection_foreground = "{{colors.on_secondary_container.default.hex}}"
 [ui]
 accent = "{{colors.primary.default.hex}}"
 sidebar = "{{colors.surface_container_low.default.hex}}"

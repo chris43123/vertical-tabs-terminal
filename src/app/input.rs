@@ -1,10 +1,11 @@
-//! Keyboard and clipboard routing to the focused terminal.
+//! Keyboard and clipboard routing to the focused terminal (or a preview's selection).
 
 use std::time::Instant;
 
 use alacritty_terminal::grid::Scroll;
 use eframe::egui;
 
+use crate::preview::selection::Selection;
 use crate::terminal::session::Session;
 
 use super::App;
@@ -46,6 +47,10 @@ impl App {
                     // Keys typed after opening the switcher or a rename box belong to that text field.
                     if self.switcher.is_some() || self.renaming.is_some() || self.help.is_some() {
                         break;
+                    }
+                    if self.preview_key(key, modifiers) {
+                        swallow_text = true;
+                        continue;
                     }
                     let Some(session) = self.focused_session() else {
                         continue;
@@ -157,10 +162,36 @@ impl App {
         }
     }
 
-    /// Copy the focused tab's selection. Returns false if nothing was selected.
+    /// Select-all and Esc in a focused preview's source view. Returns true if handled.
+    fn preview_key(&mut self, key: egui::Key, m: egui::Modifiers) -> bool {
+        let Some(preview) = self
+            .ws
+            .focused()
+            .and_then(|f| self.tabs.get_mut(&f))
+            .and_then(Tab::preview_mut)
+            .filter(|p| p.shows_source())
+        else {
+            return false;
+        };
+        let plain = !m.shift && !m.alt;
+        match key {
+            egui::Key::A if m.command && plain => {
+                preview.selection = preview.text().map(Selection::all);
+                true
+            }
+            egui::Key::Escape if m.is_none() && preview.selection.is_some() => {
+                preview.selection = None;
+                true
+            }
+            _ => false,
+        }
+    }
+
+    /// Copy the focused tab's selection: a terminal's, or a preview's. Returns false if
+    /// nothing was selected.
     fn copy_selection(&mut self) -> bool {
         let Some(session) = self.focused_session() else {
-            return false;
+            return self.copy_preview_selection();
         };
         let text = {
             let mut term = session.term.lock();
@@ -180,10 +211,43 @@ impl App {
         }
     }
 
+    /// Copy the focused preview's source selection, with a toast. Rendered markdown has egui's
+    /// own label selection, which egui copies itself; that only gets the toast.
+    fn copy_preview_selection(&mut self) -> bool {
+        let Some(id) = self.ws.focused() else {
+            return false;
+        };
+        let Some(preview) = self.tabs.get(&id).and_then(Tab::preview) else {
+            return false;
+        };
+        if let Some(text) = preview.selected_text() {
+            let message = crate::ui::copied_summary(&text);
+            self.copy_with_toast(text, message, Some(id));
+            return true;
+        }
+        let egui_copies = !preview.shows_source()
+            && preview.text().is_some()
+            && self
+                .ctx
+                .plugin::<egui::text_selection::LabelSelectionState>()
+                .lock()
+                .has_selection();
+        if egui_copies {
+            self.show_toast("Copied the selection".into(), Some(id), false);
+        }
+        egui_copies
+    }
+
     /// Copy text to the clipboard (used by right-click copy in panes).
     pub fn set_clipboard(&mut self, text: String) {
-        if let Some(cb) = &mut self.clipboard {
-            let _ = cb.set_text(text);
+        self.try_set_clipboard(text);
+    }
+
+    /// Copy text to the clipboard. Returns false if it couldn't be written.
+    pub fn try_set_clipboard(&mut self, text: String) -> bool {
+        match &mut self.clipboard {
+            Some(cb) => cb.set_text(text).is_ok(),
+            None => false,
         }
     }
 

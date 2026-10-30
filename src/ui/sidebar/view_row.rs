@@ -9,7 +9,7 @@ use eframe::egui::{
 };
 
 use crate::app::{App, RenameTarget};
-use crate::render::grid::contrast_ratio;
+use crate::theme::contrast_ratio;
 use crate::theme::mix;
 use crate::ui::view_names::monogram;
 use crate::workspace::TabId;

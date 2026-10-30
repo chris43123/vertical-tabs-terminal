@@ -17,7 +17,7 @@ use std::path::{Path, PathBuf};
 
 use crate::config::Config;
 
-pub use chrome::{UiColors, mix};
+pub use chrome::{SelectionColors, UiColors, contrast_ratio, ensure_contrast, mix};
 pub use formats::patch_from_osc;
 use formats::{load_file, parse_toml, patch_from_table};
 
@@ -30,6 +30,8 @@ pub struct Theme {
     pub background: Rgb,
     pub cursor: Rgb,
     pub selection: Rgb,
+    /// Text color on the selection, if the theme sets one (otherwise picked for contrast).
+    pub selection_foreground: Option<Rgb>,
     /// 256-color table: 0-15 ANSI, 16-231 color cube, 232-255 grayscale.
     pub colors: [Rgb; 256],
     pub accent: Option<Rgb>,
@@ -43,6 +45,7 @@ pub struct Patch {
     pub background: Option<Rgb>,
     pub cursor: Option<Rgb>,
     pub selection: Option<Rgb>,
+    pub selection_foreground: Option<Rgb>,
     pub colors: Vec<(u8, Rgb)>,
     pub accent: Option<Rgb>,
     pub sidebar: Option<Rgb>,
@@ -59,6 +62,7 @@ impl Patch {
         self.background = other.background.or(self.background);
         self.cursor = other.cursor.or(self.cursor);
         self.selection = other.selection.or(self.selection);
+        self.selection_foreground = other.selection_foreground.or(self.selection_foreground);
         self.accent = other.accent.or(self.accent);
         self.sidebar = other.sidebar.or(self.sidebar);
         for (i, c) in other.colors {
@@ -79,6 +83,7 @@ impl Theme {
         set(&mut self.background, p.background);
         set(&mut self.cursor, p.cursor);
         set(&mut self.selection, p.selection);
+        self.selection_foreground = p.selection_foreground.or(self.selection_foreground);
         for &(i, c) in &p.colors {
             self.colors[i as usize] = c;
         }
@@ -102,6 +107,7 @@ impl Default for Theme {
             background: [0x1e, 0x1e, 0x2e],
             cursor: [0xf5, 0xe0, 0xdc],
             selection: [0x58, 0x5b, 0x70],
+            selection_foreground: None,
             colors,
             accent: None,
             sidebar: None,

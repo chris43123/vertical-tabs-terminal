@@ -96,8 +96,8 @@ show_hidden = false
 wrap = true
 
 # Inline color overrides, applied on top of the theme. Same keys as a theme file:
-# foreground, background, cursor, selection, ansi = [16 colors], colorN (any index 0-255),
-# and [colors.ui] accent / sidebar.
+# foreground, background, cursor, selection, selection_foreground, ansi = [16 colors],
+# colorN (any index 0-255), and [colors.ui] accent / sidebar.
 [colors]
 # background = "#101010"
 # color4 = "#7aa2f7"

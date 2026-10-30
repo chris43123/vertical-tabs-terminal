@@ -20,8 +20,8 @@ pub(super) fn load_file(path: &Path) -> Result<Patch, String> {
     }
 }
 
-/// vtt TOML theme: `foreground`, `background`, `cursor`, `selection`, `ansi = [16 colors]`,
-/// `colorN` for any palette index, and `[ui]` with `accent` / `sidebar`.
+/// vtt TOML theme: `foreground`, `background`, `cursor`, `selection`, `selection_foreground`,
+/// `ansi = [16 colors]`, `colorN` for any palette index, and `[ui]` with `accent` / `sidebar`.
 pub(super) fn parse_toml(text: &str) -> Result<(Patch, Vec<String>), String> {
     let table: toml::Table = toml::from_str(text).map_err(|e| e.to_string())?;
     patch_from_table(&table)
@@ -41,6 +41,7 @@ pub(super) fn patch_from_table(table: &toml::Table) -> Result<(Patch, Vec<String
             "background" => patch.background = Some(color(key, value)?),
             "cursor" => patch.cursor = Some(color(key, value)?),
             "selection" | "selection_background" => patch.selection = Some(color(key, value)?),
+            "selection_foreground" => patch.selection_foreground = Some(color(key, value)?),
             "ansi" => {
                 let list = value.as_array().ok_or("`ansi` must be a list of colors")?;
                 if list.len() > 16 {
@@ -96,6 +97,7 @@ fn parse_kitty(text: &str) -> Patch {
             "background" => patch.background = Some(rgb),
             "cursor" => patch.cursor = Some(rgb),
             "selection_background" => patch.selection = Some(rgb),
+            "selection_foreground" => patch.selection_foreground = Some(rgb),
             "active_border_color" => patch.accent = Some(rgb),
             _ => {
                 if let Some(i) = key.strip_prefix("color").and_then(|n| n.parse::<u8>().ok()) {
@@ -145,6 +147,7 @@ mod tests {
             background = "#101010"
             color4 = "#0000ff"
             color232 = "#121212"
+            selection_foreground = "#202020"
             bogus = 1
             [ui]
             accent = "#ff00ff"
@@ -155,6 +158,7 @@ mod tests {
         assert!(p.colors.contains(&(4, [0, 0, 0xff])));
         assert!(p.colors.contains(&(232, [0x12, 0x12, 0x12])));
         assert_eq!(p.accent, Some([0xff, 0, 0xff]));
+        assert_eq!(p.selection_foreground, Some([0x20, 0x20, 0x20]));
         assert_eq!(warnings, vec!["unknown key `bogus`"]);
         assert!(parse_toml("background = \"red\"").is_err());
     }
@@ -163,11 +167,13 @@ mod tests {
     fn kitty_theme() {
         let p = parse_kitty(
             "# generated\nbackground            #1D1A18\nforeground #EDD4C2\ncolor1 #EF672C\n\
-             color255 #DEC1B1\nselection_background #F4DED4\nfont_family Hack\ninclude other.conf\n",
+             color255 #DEC1B1\nselection_background #F4DED4\nselection_foreground #5D3F3B\n\
+             font_family Hack\ninclude other.conf\n",
         );
         assert_eq!(p.background, Some([0x1d, 0x1a, 0x18]));
         assert_eq!(p.foreground, Some([0xed, 0xd4, 0xc2]));
         assert_eq!(p.selection, Some([0xf4, 0xde, 0xd4]));
+        assert_eq!(p.selection_foreground, Some([0x5d, 0x3f, 0x3b]));
         assert_eq!(
             p.colors,
             vec![(1, [0xef, 0x67, 0x2c]), (255, [0xde, 0xc1, 0xb1])]

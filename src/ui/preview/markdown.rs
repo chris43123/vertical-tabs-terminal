@@ -56,7 +56,7 @@ impl App {
         style.wrap_mode = Some(egui::TextWrapMode::Wrap);
         let c = self.chrome.clone();
 
-        egui::ScrollArea::vertical()
+        let output = egui::ScrollArea::vertical()
             .id_salt(scroll_id)
             .auto_shrink([false, false])
             .show(ui, |ui| {
@@ -75,6 +75,29 @@ impl App {
                     });
                 });
             });
+
+        // egui's label selection is being dragged out of this area: something pressed inside
+        // it is dragged, and it isn't one of the area's scroll bars.
+        let id = output.id;
+        let selecting = ui.input(|i| {
+            i.pointer.primary_down()
+                && i.pointer
+                    .press_origin()
+                    .is_some_and(|p| output.inner_rect.contains(p))
+        }) && ui
+            .ctx()
+            .dragged_id()
+            .is_some_and(|d| d != id.with(0usize) && d != id.with(1usize));
+        if selecting {
+            super::autoscroll(
+                ui.ctx(),
+                id,
+                &output.state,
+                output.inner_rect,
+                output.content_size,
+                false,
+            );
+        }
     }
 }
 
