@@ -1,8 +1,9 @@
 ---
 name: factory
-description: Run the software factory - a feature goes spec -> build -> 4 parallel reviews -> approver -> merge to main or needs-human. Makes this session the orchestrator.
+description: Run the software factory - a feature goes spec -> build -> up to 3 parallel reviews -> approver -> merge to main or needs-human. Makes this session the orchestrator.
 argument-hint: <feature> | next | approve <job-id> | rework <job-id> <note>
 disable-model-invocation: true
+model: sonnet
 ---
 # /factory
 
@@ -10,6 +11,10 @@ You are the **orchestrator**. You run the loop, spawn every agent, and are the o
 writer of `factory/board.json`. You never write code, specs, reviews or decisions
 yourself; agents do, and each writes only its own file. Agents get context from
 files, so every prompt you send is just paths.
+
+Your work is bookkeeping, so keep your own context small: start each `/factory`
+command in a fresh session (`/clear` first), read only the first lines of agents'
+files, and never read diffs or code yourself beyond the gate checks below.
 
 Arguments: `$ARGUMENTS`
 
@@ -27,24 +32,26 @@ Arguments: `$ARGUMENTS`
                              ▼
                    ┌──────────────────┐
                    │     builder      │◄────────────────────┐
-                   │       opus       │                     │
+                   │ opus  (fixes:    │                     │
+                   │       sonnet)    │                     │
                    └─────────┬────────┘                     │
-        ┌─────────────┬──────┴──────┬─────────────┐         │
-        ▼             ▼             ▼             ▼         │
-  ┌───────────┐ ┌───────────┐ ┌───────────┐ ┌───────────┐   │
-  │  security │ │     ux    │ │ ui design │ │    code   │   │
-  │    opus   │ │   sonnet  │ │   sonnet  │ │   sonnet  │   │
-  └─────┬─────┘ └─────┬─────┘ └─────┬─────┘ └─────┬─────┘   │
-        └─────────────┴──────┬──────┴─────────────┘         │
+          ┌──────────────────┼──────────────────┐           │
+          ▼                  ▼                  ▼           │
+    ┌───────────┐      ┌───────────┐      ┌───────────┐     │
+    │ security* │      │  design*  │      │    code   │     │
+    │   sonnet  │      │ (ux + ui) │      │   sonnet  │     │
+    │           │      │   sonnet  │      │           │     │
+    └─────┬─────┘      └─────┬─────┘      └─────┬─────┘     │
+          └──────────────────┼──────────────────┘           │
                              ▼                              │
                    ┌──────────────────┐   any CHANGES:      │
                    │   WAIT FOR ALL   ├─────────────────────┘
-                   │   4 reviews in   │   resume builder
+                   │   3 reviews in   │   fresh builder
                    └─────────┬────────┘   (max 2 rounds)
                              ▼ all PASS
                    ┌──────────────────┐
                    │     approver     │
-                   │       opus       │
+                   │      sonnet      │
                    └─┬───────────────┬┘
              APPROVE │               │ ESCALATE
                      ▼               ▼
@@ -55,8 +62,30 @@ Arguments: `$ARGUMENTS`
 
 - `MAX_ROUNDS = 2` review rounds per job (and 2 more after each `rework`). Still
   CHANGES after the last round → approver anyway, which escalates.
-- Reviewers: `security-reviewer`, `ux-reviewer`, `ui-reviewer`, `code-reviewer`,
-  writing `review-security.md`, `review-ux.md`, `review-ui.md`, `review-code.md`.
+- Reviewers: `security-reviewer`, `design-reviewer` (UX and UI in one lane),
+  `code-reviewer`, writing `review-security.md`, `review-design.md`, `review-code.md`.
+  Jobs started before the merge keep `ux`/`ui` in their board history; that's fine.
+- \* **Security is gated** (vtt is a personal desktop app; the lane is the costliest).
+  Spawn `security-reviewer` in a round only if both hold:
+  1. The diff touches its surface: `unsafe`/FFI, `Cargo.toml`/`Cargo.lock`, process
+     spawning or killing, the PTY, text typed into a shell, or escape-sequence/OSC
+     handling. Check with `git -C .worktrees/<id> diff main...HEAD` (names and a grep
+     for `unsafe`, `Command::new`, `libc::`, `windows_sys`, `kill`, `pty`, `osc`).
+  2. It hasn't already passed this job: it never ran, or its last verdict was CHANGES,
+     or the surface changed since it last passed (`git diff <sha it reviewed>..HEAD`).
+  Otherwise write `round-N/review-security.md` yourself, first line exactly
+  `VERDICT: SKIPPED`, then one line saying why (no security surface / passed in round
+  M at <sha>), and set its chip to `SKIPPED`. SKIPPED counts as PASS.
+- \* **Design is gated from round 2 on.** Skip `design-reviewer` the same way when its
+  last verdict was PASS and nothing it judges changed since it reviewed (the
+  `Reviewed:` sha on its file's second line): `git diff --stat <sha>..HEAD` touches
+  none of `src/ui/`, `src/theme/`, `src/render/`, `src/config/`, `README.md`,
+  `config.example.toml`. Code always runs: it runs the checks.
+- **Builders are fresh each pass.** Never resume a builder: its context grows with
+  every round (job 003's reached 240k tokens a turn). Each pass spawns a new
+  `builder`; `build.md` and the branch log carry what earlier passes did. The initial
+  build and human rework use its default model (opus); fixes for a review round pass
+  `model: sonnet`, since they are small and the findings say where to look.
 
 ## Files
 
@@ -85,8 +114,8 @@ step below so the dashboard moves.
 { "jobs": [ {
   "id": "004-tab-search", "title": "Search tabs by cwd", "branch": "factory/004-tab-search",
   "stage": "review", "round": 2,
-  "reviews": { "security": "pending", "ux": "PASS", "ui": "pending", "code": "CHANGES" },
-  "history": [ { "security": "CHANGES", "ux": "PASS", "ui": "PASS", "code": "PASS" } ],
+  "reviews": { "security": "pending", "design": "PASS", "code": "CHANGES" },
+  "history": [ { "security": "CHANGES", "design": "PASS", "code": "PASS" } ],
   "decision": null, "note": "", "updated": "2026-10-19T14:02:00Z"
 } ] }
 ```
@@ -103,27 +132,29 @@ step below so the dashboard moves.
 2. Spawn `spec-writer`: "Job folder: factory/jobs/<id>/". Wait. Check `spec.md` exists.
 3. Create the worktree: `git worktree add .worktrees/<id> -b factory/<id> main`.
    Stage `build`.
-4. Spawn `builder` **named `builder-<id>`**: "Job folder: factory/jobs/<id>/.
+4. Spawn `builder`: "Job folder: factory/jobs/<id>/.
    Worktree: .worktrees/<id>. Repo root: <absolute path>. Do the initial build."
    Wait for DONE. On BLOCKED, set stage `needs-human` with the reason as `note`; stop.
 5. Run review rounds (below), then the approver (below).
 
 ### Review round N
-1. `mkdir factory/jobs/<id>/round-N`. Board: stage `review`, `round: N`, all four
+1. `mkdir factory/jobs/<id>/round-N`. Board: stage `review`, `round: N`, all three
    reviews `pending`.
-2. Spawn all four reviewers **in one message** (they run in parallel), each with:
+2. Spawn the reviewers **in one message** (they run in parallel; security only if
+   gated in, see above), each with:
    "Job folder: factory/jobs/<id>/. Worktree: .worktrees/<id>. Repo root: <path>.
    Round folder: factory/jobs/<id>/round-N/."
 3. **WAIT FOR ALL.** As each reviewer finishes, read the first line of its file and
-   set its chip on the board. The round is done only when all four `review-*.md`
-   files exist in the round folder (check with `ls`). Never resume the builder
+   set its chip on the board. The round is done only when all three `review-*.md`
+   files exist in the round folder (check with `ls`). Never start a builder
    mid-round. If a reviewer finished without writing its file, or the first line
-   isn't `VERDICT: PASS`/`VERDICT: CHANGES`, re-spawn that reviewer once; if it fails
+   isn't `VERDICT: PASS`/`VERDICT: CHANGES` (or your own `VERDICT: SKIPPED`), re-spawn that reviewer once; if it fails
    again, record it as CHANGES.
-4. All PASS → approver. Any CHANGES and N < MAX_ROUNDS → move `reviews` to
-   `history`, stage `build`, and resume the same builder with **SendMessage to
-   `builder-<id>`**: "Review round folder: factory/jobs/<id>/round-N/. Address it."
-   Wait for DONE, then run round N+1. Any CHANGES at the last round → approver
+4. All PASS (or SKIPPED) → approver. Any CHANGES and N < MAX_ROUNDS → move `reviews` to
+   `history`, stage `build`, and spawn a fresh `builder` with `model: sonnet`:
+   "Job folder: factory/jobs/<id>/. Worktree: .worktrees/<id>. Repo root: <path>.
+   Review round folder: factory/jobs/<id>/round-N/. Address it." Wait for DONE, then
+   run round N+1. Any CHANGES at the last round → approver
    (it will escalate).
 
 ### Approver
@@ -147,17 +178,15 @@ decision's "For the human" list), then run `bash factory/merge.sh <id>`. Stage
 
 ### `/factory rework <job-id> <note>`
 Append the note to `factory/jobs/<id>/human.md` under a dated `## <timestamp>`
-heading. Clear `decision`, stage `build`, and resume `builder-<id>` with SendMessage:
-"Human feedback: factory/jobs/<id>/human.md (latest section). Address it." Then run
+heading. Clear `decision`, stage `build`, and spawn a fresh `builder` (default model):
+"Job folder: factory/jobs/<id>/. Worktree: .worktrees/<id>. Repo root: <path>. Human
+feedback: factory/jobs/<id>/human.md (latest section). Address it." Then run
 review rounds continuing the numbering (round N+1 …), with MAX_ROUNDS more rounds,
 then the approver.
 
 ## Resuming across sessions
-If SendMessage can't reach `builder-<id>` (e.g. a new session), spawn a fresh
-`builder` with the same name and say: "You are resuming this job. Read build.md and
-`git -C .worktrees/<id> log main..HEAD` first." Then give it the round folder or note.
-If `.worktrees/<id>` is missing, recreate it from the branch:
-`git worktree add .worktrees/<id> factory/<id>`.
+Nothing to resume: every agent starts fresh from the job's files. If `.worktrees/<id>`
+is missing, recreate it from the branch: `git worktree add .worktrees/<id> factory/<id>`.
 
 ## Rules
 - Never write to `main` except through `factory/merge.sh`, which pushes it.
@@ -165,5 +194,6 @@ If `.worktrees/<id>` is missing, recreate it from the branch:
   `factory/conventions.md`). Never force-push.
 - Commit and push your own `factory/` changes (board, feature.md, human.md) at the end
   of each command, so the other machines see the same board.
-- Never edit an agent's file. To change an outcome, run the agent again.
+- Never edit an agent's file. To change an outcome, run the agent again. The only file
+  you write in a round folder is a skipped `review-security.md`.
 - Watch it: `cd factory && python3 -m http.server` → http://localhost:8000/dashboard.html
