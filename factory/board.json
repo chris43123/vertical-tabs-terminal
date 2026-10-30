@@ -58,7 +58,7 @@
       "id": "003-favorite-sessions",
       "title": "Favorite directories as pinned sessions",
       "branch": "factory/003-favorite-sessions",
-      "stage": "needs-human",
+      "stage": "merged",
       "round": 5,
       "reviews": {},
       "history": [
@@ -91,7 +91,7 @@
         }
       ],
       "decision": "ESCALATE",
-      "note": "round 5 all PASS; escalated for the manual pass of 71f23fb and 337bbca",
+      "note": "approved by human",
       "updated": "2026-10-30T20:10:08Z"
     }
   ]
