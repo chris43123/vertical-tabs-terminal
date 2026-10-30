@@ -115,7 +115,7 @@ wrap = true
 # close_tab = []                           # unbind
 # duplicate_tab = "alt+shift+n"            # unbound by default
 # new_group = "alt+g"                      # unbound by default
-# reset_tab = "ctrl+shift+r"               # unbound by default
+# reset_tab = "ctrl+shift+r"               # Linux/Windows: unbound by default (macOS: cmd+shift+r)
 # goto_tab_1 = "alt+1"                     # Linux/Windows: most actions are unbound
 
 # Extra profiles, added after the auto-discovered shells.

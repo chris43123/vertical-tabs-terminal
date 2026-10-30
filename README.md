@@ -24,7 +24,7 @@ Inspired by Warp, minus the weight: Warp's good ideas (a file tree that follows 
 - **File previews.** Click a file to open it in a pane next to the terminal: rendered Markdown, syntax-highlighted code and JSON, images. Copy the whole file in one click, select lines by their numbers, or copy a `path:12-40` reference for an agent.
 - **Git at a glance.** The files panel shows the branch, commits ahead/behind, and changed files highlighted in green.
 - **File search.** Fuzzy-find any file in the project from the files panel.
-- **Reset tab.** Every tab remembers how it was launched (shell, directory, name). "Reset tab" (palette or the tab's right-click menu) kills everything running in it, background jobs included, and starts a fresh shell in the same slot, split and folder, in the directory it was opened in. A wedged REPL, a hung `ssh` or a runaway build is one click from a clean prompt. It asks first if a program is running (`confirm_reset`; on Windows vtt can't tell, so it never asks). On Linux/macOS, processes that detach with `setsid` (daemons) leave the tab's session and survive by design.
+- **Reset tab.** Every tab remembers how it was launched (shell, directory, name). "Reset tab" (`⌘⇧R` on macOS, or the palette and the tab's right-click menu) kills everything running in it, background jobs included, and starts a fresh shell in the same slot, split and folder, in the directory it was opened in. A wedged REPL, a hung `ssh` or a runaway build is one click from a clean prompt. It asks first if a program is running (`confirm_reset`; on Windows vtt can't tell, so it never asks). On Linux/macOS, processes that detach with `setsid` (daemons) leave the tab's session and survive by design.
 - **Hover a tab** for a moment to see its full working directory and the program running in it.
 - **Auto titles.** A tab shows the title the shell sets, or `<process> · <cwd>` (on Linux and macOS).
 - **Activity indicators.** A dot appears when a background tab prints output, and a badge on a bell or when the process exits.
@@ -72,7 +72,7 @@ On Linux and Windows, vtt only binds the shortcuts terminals conventionally use 
 | New folder with the focused tab | — | — |
 | Search files (in the files panel) | — | — |
 | Duplicate tab | — | — |
-| Reset tab (kill what runs in it, start it again in place) | — | — |
+| Reset tab (kill what runs in it, start it again in place) | — | `⌘⇧R` |
 
 **Terminal**
 
@@ -347,7 +347,7 @@ wrap = true
 # close_tab = []                           # unbind
 # duplicate_tab = "alt+shift+n"            # unbound by default
 # new_group = "alt+g"                      # unbound by default
-# reset_tab = "ctrl+shift+r"               # unbound by default
+# reset_tab = "ctrl+shift+r"               # Linux/Windows: unbound by default (macOS: cmd+shift+r)
 # goto_tab_1 = "alt+1"                     # Linux/Windows: most actions are unbound
 
 # Extra profiles, added after the auto-discovered shells.

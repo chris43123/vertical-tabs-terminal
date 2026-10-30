@@ -459,6 +459,7 @@ fn default_specs(macos: bool) -> Vec<(String, Action)> {
             ("cmd+w", CloseTab),
             ("cmd+shift+t", ReopenClosedTab),
             ("cmd+r", RenameTab),
+            ("cmd+shift+r", ResetTab),
             ("cmd+d", SplitRight),
             ("cmd+shift+d", SplitDown),
             ("cmd+shift+m", MinimizePane), // Cmd+M minimises the window on macOS.
@@ -743,19 +744,18 @@ mod tests {
     }
 
     #[test]
-    fn reset_tab_is_an_unbound_action() {
+    fn reset_tab_is_bound_on_macos_only() {
         assert_eq!(Action::from_name("reset_tab"), Some(Action::ResetTab));
         assert_eq!(Action::ResetTab.label(), "Reset tab");
-        for macos in [false, true] {
-            assert!(
-                default_specs(macos)
-                    .iter()
-                    .all(|(_, a)| *a != Action::ResetTab),
-                "macos={macos}"
-            );
-        }
-        let kb = Keybinds::new(&HashMap::new());
-        assert!(kb.chords(Action::ResetTab).is_empty());
+        let bound = |macos: bool| -> Vec<String> {
+            default_specs(macos)
+                .into_iter()
+                .filter(|(_, a)| *a == Action::ResetTab)
+                .map(|(s, _)| s)
+                .collect()
+        };
+        assert_eq!(bound(true), vec!["cmd+shift+r".to_string()]);
+        assert!(bound(false).is_empty());
         // The example chord in config.example.toml is free on Linux/Windows.
         let example = Chord::parse_for("ctrl+shift+r", false).unwrap();
         assert!(
