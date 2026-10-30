@@ -20,20 +20,17 @@ impl App {
             .get(profile_idx)
             .or(self.profiles.first())?
             .clone();
-        // Start in the focused tab's directory, like most terminals do.
-        let cwd = self.ws.focused().and_then(|f| self.focused_dir(f));
+        // Start in the focused tab's directory, like most terminals do; with none left, in the
+        // directory of the tab closed last.
+        let cwd = match self.ws.focused() {
+            Some(f) => self.focused_dir(f),
+            None => self
+                .closed
+                .last()
+                .and_then(|c| c.recipe.as_ref())
+                .and_then(|r| r.dir.clone()),
+        };
         self.spawn_tab(LaunchRecipe::new(profile, cwd), split)
-    }
-
-    /// Open a default tab in the directory of the tab closed last, once none are left.
-    pub(super) fn open_after_last_closed(&mut self) -> Option<TabId> {
-        let profile = self.profiles.first()?.clone();
-        let dir = self
-            .closed
-            .last()
-            .and_then(|c| c.recipe.as_ref())
-            .and_then(|r| r.dir.clone());
-        self.spawn_tab(LaunchRecipe::new(profile, dir), None)
     }
 
     pub fn new_tab_in(&mut self, dir: PathBuf) {
@@ -211,6 +208,11 @@ impl App {
             self.renaming = None;
         }
         self.scroll_to_focused = true;
+    }
+
+    /// Whether there is a closed tab to reopen.
+    pub fn can_reopen(&self) -> bool {
+        !self.closed.is_empty()
     }
 
     /// Reopen the most recently closed tab: same profile, directory, name and sidebar position.

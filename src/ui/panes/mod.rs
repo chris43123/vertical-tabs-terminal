@@ -4,6 +4,7 @@
 //! them, or type their path into a terminal.
 
 mod drop_zones;
+mod empty;
 mod mouse;
 
 use std::time::Duration;
@@ -49,6 +50,7 @@ enum PaneAction {
 impl App {
     pub(crate) fn panes(&mut self, ui: &mut Ui) {
         let Some(view) = self.ws.active_view().cloned() else {
+            self.empty_area(ui);
             return;
         };
         let split = view.root.is_split();
