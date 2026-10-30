@@ -67,9 +67,7 @@ impl App {
         // Background: the focused tab takes a tint of the accent, its split siblings a faint lift.
         let bg = if focused {
             mix(c.sidebar, c.accent, if c.light { 0.16 } else { 0.22 })
-        } else if in_active {
-            c.raised_sidebar(0.06)
-        } else if resp.hovered() {
+        } else if in_active || resp.hovered() {
             c.raised_sidebar(0.06)
         } else {
             Color32::TRANSPARENT
