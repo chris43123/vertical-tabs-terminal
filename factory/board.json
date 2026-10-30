@@ -98,7 +98,7 @@
       "id": "004-session-restore",
       "title": "Restore open tabs on launch",
       "branch": "factory/004-session-restore",
-      "stage": "needs-human",
+      "stage": "build",
       "round": 2,
       "reviews": {},
       "history": [
@@ -113,9 +113,9 @@
           "code": "PASS"
         }
       ],
-      "decision": "ESCALATE",
-      "note": "manual GUI checks (acceptance 5-8) not run; restore on by default changes launch behavior",
-      "updated": "2026-10-30T21:21:49Z"
+      "decision": null,
+      "note": "rework: restored tabs only cd, no saved command",
+      "updated": "2026-10-30T21:30:59Z"
     }
   ]
 }
