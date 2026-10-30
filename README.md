@@ -18,6 +18,7 @@ Inspired by Warp, minus the weight: Warp's good ideas (a file tree that follows 
 
 ## Features
 
+- **Favorites.** Pin the directories you return to above the tabs, each with an optional profile and command (`claude`, `k9s`, `npm run dev`). One click opens it, and from then on the favorite's row *is* that tab. Scripts and AI agents manage the same list with `vtt favorites` (see [Favorites](#favorites)).
 - **Vertical tabs.** The sidebar can be collapsed to an icon strip, or hidden entirely (zen mode, `Ctrl+B`) and peeked by hovering the left window edge (`Ctrl+\` in zen mode switches the peek between tabs and files).
 - **Folders.** Group tabs into named, colored folders that collapse, Zen-style (see [Folders](#folders)).
 - **Files panel.** A file tree of the focused shell's directory sits between the tabs and the terminals, and follows you as you `cd` (see [Files and previews](#files-and-previews)).
@@ -73,6 +74,8 @@ On Linux and Windows, vtt only binds the shortcuts terminals conventionally use 
 | Search files (in the files panel) | — | — |
 | Duplicate tab | — | — |
 | Reset tab (kill what runs in it, start it again in place) | — | `⌘⇧R` |
+| Add directory to favorites | — | — |
+| Open favorite 1–9 | — | — |
 
 **Terminal**
 
@@ -88,13 +91,13 @@ On Linux and Windows, vtt only binds the shortcuts terminals conventionally use 
 
 `Ctrl+C` copies when text is selected; otherwise it sends an interrupt as usual. Set `copy_on_select = true` to copy as soon as you finish selecting with the mouse. Pane-focus and next/previous-tab keys pass through to the shell when there is nothing to move to (a single tab, or no pane in that direction).
 
-**The palette** (`Ctrl+Shift+P`) fuzzy-searches your tabs, every command (each shown with its shortcut, so it doubles as a cheat sheet) and "new tab with profile X".
+**The palette** (`Ctrl+Shift+P`) fuzzy-searches your tabs, every command (each shown with its shortcut, so it doubles as a cheat sheet), "new tab with profile X" and "Open favorite: X".
 - It opens with your previously focused tab selected, so `Ctrl+Shift+P`, `Enter` flips between two tabs.
 - Move with `Up`/`Down`, `Tab`/`Shift+Tab` or `Ctrl+N`/`Ctrl+P`; `Enter` picks and `Esc` closes.
 
 Every shortcut can be changed in the `[keybindings]` section of the config (see below). Setting an action replaces all of its defaults. Use a list for several chords, and `[]` to unbind it. Modifiers are `ctrl`, `shift`, `alt` and `cmd` (macOS only). Keys are letters, digits, `f1`–`f24`, `tab`, `enter`, `space`, `pageup`, `pagedown`, `home`, `end`, `left`/`right`/`up`/`down`, `plus`, `minus`, `equals`, `[`, `]` and similar.
 
-Actions: `new_tab`, `close_tab`, `reopen_closed_tab`, `duplicate_tab`, `rename_tab`, `reset_tab`, `split_right`, `split_down`, `minimize_pane`, `toggle_sidebar`, `toggle_side_area`, `next_tab`, `prev_tab`, `move_tab_up`, `move_tab_down`, `goto_tab_1` … `goto_tab_9`, `last_tab`, `next_activity`, `command_palette`, `toggle_files`, `search_files`, `new_group`, `open_settings`, `focus_left`, `focus_right`, `focus_up`, `focus_down`, `zoom_in`, `zoom_out`, `zoom_reset`, `ui_zoom_in`, `ui_zoom_out`, `ui_zoom_reset`, `scroll_page_up`, `scroll_page_down`, `show_help`.
+Actions: `new_tab`, `close_tab`, `reopen_closed_tab`, `duplicate_tab`, `rename_tab`, `reset_tab`, `split_right`, `split_down`, `minimize_pane`, `toggle_sidebar`, `toggle_side_area`, `next_tab`, `prev_tab`, `move_tab_up`, `move_tab_down`, `goto_tab_1` … `goto_tab_9`, `last_tab`, `next_activity`, `command_palette`, `toggle_files`, `search_files`, `new_group`, `open_settings`, `focus_left`, `focus_right`, `focus_up`, `focus_down`, `zoom_in`, `zoom_out`, `zoom_reset`, `ui_zoom_in`, `ui_zoom_out`, `ui_zoom_reset`, `scroll_page_up`, `scroll_page_down`, `show_help`, `add_favorite`, `open_favorite_1` … `open_favorite_9`.
 
 The easiest way to rebind is the **keyboard shortcuts** window (`Ctrl+Shift+/`). Click a shortcut and press the new one (`Backspace` removes it, `Esc` cancels), or `+` to add another. It writes the `[keybindings]` line for you and keeps the rest of the file as it is. Shortcuts bound to more than one action are shown in red.
 
@@ -135,6 +138,48 @@ Folders group tabs in the sidebar, like folders in Zen Browser.
 - To add a tab to a folder, drag it onto the folder's header or between its tabs, or use **Move to folder**. Drag a tab out (or use **Remove from folder**) to take it out.
 - New tabs opened from a tab in a folder join that folder. A split view always moves as a unit.
 - Right-click a folder's header to rename it, change its color, open a new tab in it, ungroup it, or close all its tabs.
+
+## Favorites
+
+Favorites are directories pinned above the tabs in the sidebar. Each has a name (emoji welcome), a path, and optionally a profile and a command that is typed into the shell when it opens, so aliases and your `PATH` work and quitting the command leaves you at a prompt in that directory.
+
+- **Click** a favorite to open its tab. The tab doesn't get a second row among the other tabs: the favorite's row is the tab. It highlights when focused, shows the unread and bell dots, and closes with × (on hover) or a middle click; the favorite stays. A click while it's open focuses it.
+- **Splits stay with it.** Split a favorite's tab ("Split right with new tab" in its menu, or drag a tab onto its pane) and the other panes are listed under the favorite, not among the tabs. Next/previous tab and "go to tab N" count the favorites' tabs first, in the sidebar's order.
+- The same directory can be a favorite more than once (a plain shell and `k9s` in one place, say). Favorites are told apart by id, so each opens and focuses its own tab, even with the same name or path.
+- Each favorite has a **tile** with the first letter or emoji of its name (a leading emoji isn't repeated in the name next to it). The **dot** on the tile's corner is green when its tab is open, a ring when it has none, and red when its shell exited on its own; click it again to start a new one. The unread and bell dots sit on the tile's other corner.
+- **↻** (on hover) resets its tab: everything in it is killed and it starts again from the favorite as it is *now*, so a command you changed since takes effect. Reset tab on a favorite's tab does the same. With no tab open, the hover button is ▶ and opens one.
+- **Drag** to reorder. **Right-click** for Reset, Split right, Minimise from split, Reveal in files panel, Rename / edit…, Close tab and Remove favorite (with no tab open: Open, Open in split, Reveal, Rename / edit… and Remove). Open in split into another favorite's tab opens a plain tab started like this favorite (directory, profile, command) in that favorite's split; this favorite's own row stays closed. Double-click opens the edit dialog.
+- The **Favorites** header has a **+** on hover to add one. Drag the line under the section to make it taller or shorter (double-click it to go back to the default); the height is remembered. Past that height the section scrolls, so the tabs always keep room.
+- A favorite whose directory is gone is dimmed, and clicking it only says so. vtt checks when it loads the list, when the list changes and when you click; it never polls.
+- With the sidebar collapsed, a favorite shows just its tile.
+- **Add one** with "Add directory to favorites" in a tab's right-click menu (its current directory), in a folder's right-click menu in the files panel, or from the palette. The dialog asks for the name, path, profile and command. It won't save a path that doesn't exist, or a command with more than one line.
+
+### From the command line
+
+`vtt favorites` edits the same list, whether or not vtt is running. A running vtt shows the change within a second.
+
+```sh
+vtt favorites add                                    # the current directory, named after it
+vtt favorites add ~/src/api --name "🚀 api" --command claude
+vtt favorites add ~/infra --profile fish --command k9s
+vtt favorites list                                   # position, id, name, path, profile, command
+vtt favorites list --json                            # [{id, name, path, profile, command, position, exists}]
+vtt favorites set api command "npm run dev"          # fields: name, path, profile, command
+vtt favorites unset 2 command                        # profile and command can be unset
+vtt favorites move f3 1                              # to the top
+vtt favorites rm "🚀 api"
+vtt favorites path                                   # where the file lives
+```
+
+`<fav>` is a position (`1`), an id (`f3`) or an exact name. Ids are stable and never reused, so scripts should prefer them; a name shared by several favorites is an error that lists their ids. Exit codes: 0 ok, 1 error (the message says what to fix, and the file is left as it was), 2 bad usage (prints the usage).
+
+The list lives in its own file, per machine, not in the config:
+
+- Linux: `~/.local/share/vtt/favorites.toml`
+- macOS: `~/Library/Application Support/vtt/favorites.toml` (next to `config.toml`, but still a separate file)
+- Windows: `%APPDATA%\vtt\favorites.toml`
+
+It's plain TOML (`[[favorite]]` tables), so you can edit it by hand too. vtt and the CLI write it atomically and re-read it before every change, so neither overwrites the other's edits. A favorite's command is typed into a shell, so anything that can write this file can run commands as you, just like your shell's rc files. vtt only types one line: a hand-edited command with a line break or another control character (an escape sequence, say) is ignored with a warning, and **dropped from the file the next time vtt or `vtt favorites` writes it**. Control characters in a hand-edited name are replaced the same way.
 
 ## Installing
 
@@ -349,6 +394,8 @@ wrap = true
 # new_group = "alt+g"                      # unbound by default
 # reset_tab = "ctrl+shift+r"               # Linux/Windows: unbound by default (macOS: cmd+shift+r)
 # goto_tab_1 = "alt+1"                     # Linux/Windows: most actions are unbound
+# add_favorite = "ctrl+shift+f2"           # unbound by default, on every OS
+# open_favorite_1 = "ctrl+f1"              # open_favorite_1 … _9: unbound by default
 
 # Extra profiles, added after the auto-discovered shells.
 # A profile with the same name as a discovered one replaces it.

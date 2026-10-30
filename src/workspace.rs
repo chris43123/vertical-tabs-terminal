@@ -639,20 +639,20 @@ impl Workspace {
         self.order = out;
     }
 
-    /// Next/previous tab in sidebar order, wrapping.
-    pub fn cycle(&mut self, forward: bool) {
+    /// Next/previous tab in `order` (the order the sidebar shows them in, which favorites
+    /// can make differ from [`Self::order`]), wrapping.
+    pub fn cycle(&mut self, order: &[TabId], forward: bool) {
         let Some(cur) = self.focused() else { return };
-        let Some(i) = self.order.iter().position(|t| *t == cur) else {
+        let Some(i) = order.iter().position(|t| *t == cur) else {
             return;
         };
-        let n = self.order.len();
+        let n = order.len();
         let j = if forward {
             (i + 1) % n
         } else {
             (i + n - 1) % n
         };
-        let next = self.order[j];
-        self.activate(next);
+        self.activate(order[j]);
     }
 }
 
@@ -745,10 +745,21 @@ mod tests {
         w.reorder(3, 0);
         assert_eq!(w.order, vec![3, 1, 2]);
         w.activate(3);
-        w.cycle(true);
+        w.cycle(&w.order.clone(), true);
         assert_eq!(w.focused(), Some(1));
-        w.cycle(false);
-        w.cycle(false);
+        w.cycle(&w.order.clone(), false);
+        w.cycle(&w.order.clone(), false);
+        assert_eq!(w.focused(), Some(2));
+    }
+
+    #[test]
+    fn cycle_follows_the_given_order() {
+        let mut w = ws(3);
+        w.activate(3);
+        w.cycle(&[3, 1, 2], true);
+        assert_eq!(w.focused(), Some(1));
+        w.activate(3);
+        w.cycle(&[3, 1, 2], false);
         assert_eq!(w.focused(), Some(2));
     }
 

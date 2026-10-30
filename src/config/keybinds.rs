@@ -57,9 +57,14 @@ pub enum Action {
     ScrollPageDown,
     /// The keyboard shortcuts window (also where they're rebound).
     ShowHelp,
+    /// Pin the focused tab's directory as a favorite (opens the favorite dialog).
+    AddFavorite,
+    /// Open (or focus) the Nth favorite in the sidebar (1-based).
+    OpenFavorite(u8),
 }
 
-/// Config name and human label of every action (except `GotoTab`, which is numbered).
+/// Config name and human label of every action (except `GotoTab` and `OpenFavorite`, which
+/// are numbered).
 pub const ACTIONS: &[(&str, &str, Action)] = &[
     ("new_tab", "New tab", Action::NewTab),
     ("close_tab", "Close tab", Action::CloseTab),
@@ -124,6 +129,11 @@ pub const ACTIONS: &[(&str, &str, Action)] = &[
         Action::ScrollPageDown,
     ),
     ("show_help", "Keyboard shortcuts", Action::ShowHelp),
+    (
+        "add_favorite",
+        "Add directory to favorites",
+        Action::AddFavorite,
+    ),
 ];
 
 impl Action {
@@ -131,6 +141,7 @@ impl Action {
     pub fn config_name(self) -> String {
         match self {
             Self::GotoTab(n) => format!("goto_tab_{n}"),
+            Self::OpenFavorite(n) => format!("open_favorite_{n}"),
             _ => ACTIONS
                 .iter()
                 .find(|(_, _, a)| *a == self)
@@ -143,6 +154,7 @@ impl Action {
     pub fn label(self) -> String {
         match self {
             Self::GotoTab(n) => format!("Go to tab {n}"),
+            Self::OpenFavorite(n) => format!("Open favorite {n}"),
             _ => ACTIONS
                 .iter()
                 .find(|(_, _, a)| *a == self)
@@ -155,8 +167,12 @@ impl Action {
         if let Some(&(_, _, a)) = ACTIONS.iter().find(|(n, _, _)| *n == name) {
             return Some(a);
         }
-        let n: u8 = name.strip_prefix("goto_tab_")?.parse().ok()?;
-        (1..=9).contains(&n).then_some(Self::GotoTab(n))
+        let (numbered, rest): (fn(u8) -> Self, _) = match name.strip_prefix("goto_tab_") {
+            Some(rest) => (Self::GotoTab, rest),
+            None => (Self::OpenFavorite, name.strip_prefix("open_favorite_")?),
+        };
+        let n: u8 = rest.parse().ok()?;
+        (1..=9).contains(&n).then(|| numbered(n))
     }
 }
 
@@ -639,6 +655,28 @@ mod tests {
         assert_eq!(Action::from_name("goto_tab_9"), Some(Action::GotoTab(9)));
         assert!(Action::from_name("goto_tab_0").is_none());
         assert!(Action::from_name("goto_tab_10").is_none());
+        assert_eq!(
+            Action::from_name("open_favorite_3"),
+            Some(Action::OpenFavorite(3))
+        );
+        assert!(Action::from_name("open_favorite_0").is_none());
+        assert!(Action::from_name("open_favorite_x").is_none());
+    }
+
+    #[test]
+    fn favorite_actions_are_unbound_everywhere() {
+        let mut actions = vec![Action::AddFavorite];
+        actions.extend((1..=9).map(Action::OpenFavorite));
+        for macos in [false, true] {
+            for (chord, action) in default_specs(macos) {
+                assert!(!actions.contains(&action), "macos={macos}: {chord}");
+            }
+        }
+        for a in actions {
+            assert_eq!(Action::from_name(&a.config_name()), Some(a));
+        }
+        assert_eq!(Action::OpenFavorite(2).label(), "Open favorite 2");
+        assert_eq!(Action::AddFavorite.config_name(), "add_favorite");
     }
 
     #[cfg(not(target_os = "macos"))]

@@ -81,6 +81,21 @@ const SECTIONS: &[(&str, &[Action])] = {
                 UiZoomReset,
             ],
         ),
+        (
+            "Favorites",
+            &[
+                AddFavorite,
+                OpenFavorite(1),
+                OpenFavorite(2),
+                OpenFavorite(3),
+                OpenFavorite(4),
+                OpenFavorite(5),
+                OpenFavorite(6),
+                OpenFavorite(7),
+                OpenFavorite(8),
+                OpenFavorite(9),
+            ],
+        ),
         ("Terminal", &[ScrollPageUp, ScrollPageDown]),
         ("App", &[CommandPalette, OpenSettings, ShowHelp]),
     ]
@@ -127,6 +142,32 @@ fn gestures() -> Vec<(&'static str, Vec<(&'static str, &'static str)>)> {
                     "Reorder, or drop on a pane to split or swap it",
                 ),
                 ("Right click", "Tab or folder menu"),
+            ],
+        ),
+        (
+            "Favorites",
+            vec![
+                (
+                    "Click",
+                    "Open the favorite, or focus its tab (its row is the tab)",
+                ),
+                ("↻ / × on hover", "Reset / close its tab (▶ opens it)"),
+                ("Middle click", "Close its tab"),
+                ("Double click", "Rename / edit"),
+                ("Drag", "Reorder"),
+                (
+                    "Drag the line below",
+                    "Resize the section (double click: default)",
+                ),
+                ("+ on the header", "Add a favorite"),
+                (
+                    "Right click",
+                    "Reset, split, reveal in files, edit, close, remove",
+                ),
+                (
+                    "Tile dot",
+                    "Green: open; ring: no tab; red: its shell exited",
+                ),
             ],
         ),
         (

@@ -117,6 +117,8 @@ wrap = true
 # new_group = "alt+g"                      # unbound by default
 # reset_tab = "ctrl+shift+r"               # Linux/Windows: unbound by default (macOS: cmd+shift+r)
 # goto_tab_1 = "alt+1"                     # Linux/Windows: most actions are unbound
+# add_favorite = "ctrl+shift+f2"           # unbound by default, on every OS
+# open_favorite_1 = "ctrl+f1"              # open_favorite_1 … _9: unbound by default
 
 # Extra profiles, added after the auto-discovered shells.
 # A profile with the same name as a discovered one replaces it.

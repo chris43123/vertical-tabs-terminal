@@ -8,7 +8,7 @@ use std::time::{Duration, SystemTime};
 
 pub struct Watcher {
     paths: Arc<Mutex<Vec<PathBuf>>>,
-    rx: Receiver<()>,
+    rx: Receiver<Vec<PathBuf>>,
 }
 
 impl Watcher {
@@ -38,8 +38,14 @@ impl Watcher {
                     }
                     let now = stamp(&watched);
                     if now != last {
+                        let changed = watched
+                            .iter()
+                            .zip(now.iter().zip(&last))
+                            .filter(|(_, (a, b))| a != b)
+                            .map(|(p, _)| p.clone())
+                            .collect();
                         last = now;
-                        if tx.send(()).is_err() {
+                        if tx.send(changed).is_err() {
                             return;
                         }
                         ctx.request_repaint();
@@ -55,12 +61,16 @@ impl Watcher {
         *self.paths.lock().unwrap() = paths;
     }
 
-    /// True if any watched file changed since the last call.
-    pub fn changed(&self) -> bool {
-        let mut any = false;
-        while self.rx.try_recv().is_ok() {
-            any = true;
+    /// The watched files that changed since the last call.
+    pub fn changed(&self) -> Vec<PathBuf> {
+        let mut changed: Vec<PathBuf> = Vec::new();
+        while let Ok(paths) = self.rx.try_recv() {
+            for p in paths {
+                if !changed.contains(&p) {
+                    changed.push(p);
+                }
+            }
         }
-        any
+        changed
     }
 }

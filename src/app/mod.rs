@@ -6,6 +6,7 @@
 mod actions;
 mod appearance;
 mod events;
+mod favorites;
 mod files;
 mod input;
 mod previews;
@@ -14,6 +15,7 @@ mod side;
 mod tab;
 mod tabs;
 
+pub use favorites::{FavStatus, FavoritesState};
 pub use files::FilesPanel;
 pub use previews::Previews;
 pub use recipe::LaunchRecipe;
@@ -86,6 +88,13 @@ pub struct App {
     pub help: Option<crate::ui::Help>,
     /// "Reset this tab?" while it waits for an answer.
     pub reset_prompt: Option<crate::ui::ResetPrompt>,
+    /// The favorites pinned above the tabs, and the tabs they opened.
+    pub favorites: FavoritesState,
+    /// Height of the favorites section, once the user drags its handle (else a share of
+    /// the sidebar).
+    pub favorites_height: Option<f32>,
+    /// The add/edit favorite dialog, when open.
+    pub favorite_dialog: Option<crate::ui::FavoriteDialog>,
     closed: Vec<ClosedTab>,
     /// Focused tab as of the last frame, and the one before it.
     last_focused: Option<TabId>,
@@ -125,7 +134,11 @@ impl App {
         let palette = Palette::from_theme(&resolved.theme);
         apply_style(&ctx, &chrome);
         apply_motion(&ctx, config.reduce_motion);
-        let watcher = Watcher::spawn(watch_paths(resolved.file), ctx.clone());
+        let favorites = FavoritesState::load();
+        let watcher = Watcher::spawn(
+            watch_paths(resolved.file, favorites.store_path()),
+            ctx.clone(),
+        );
 
         let ui_zoom = restored_ui_zoom(cc.storage, config.ui_scale);
         ctx.set_zoom_factor(ui_zoom);
@@ -174,6 +187,11 @@ impl App {
             switcher: None,
             help: None,
             reset_prompt: None,
+            favorites,
+            favorite_dialog: None,
+            favorites_height: cc
+                .storage
+                .and_then(|s| eframe::get_value::<f32>(s, FAVORITES_HEIGHT_KEY)),
             closed: Vec::new(),
             last_focused: None,
             prev_focused: None,
@@ -192,6 +210,7 @@ impl App {
             previews,
             toast: None,
         };
+        app.warn_unknown_profiles();
         app.new_tab(0, None);
         app
     }
@@ -242,6 +261,7 @@ impl App {
 }
 
 const UI_ZOOM_KEY: &str = "ui_zoom";
+const FAVORITES_HEIGHT_KEY: &str = "favorites_height";
 
 /// The runtime UI zoom (Ctrl+Shift+=/-), saved across restarts together with the
 /// `ui_scale` it was based on, so editing `ui_scale` in the config still takes effect.
@@ -261,7 +281,7 @@ fn restored_ui_zoom(storage: Option<&dyn eframe::Storage>, ui_scale: f32) -> f32
 }
 
 impl eframe::App for App {
-    /// Only the window geometry and UI zoom are persisted;
+    /// Only the window geometry, the UI zoom and the favorites section's height are persisted;
     /// egui's memory would restore stale focus/scroll state.
     fn persist_egui_memory(&self) -> bool {
         false
@@ -276,6 +296,10 @@ impl eframe::App for App {
                 ui_scale: self.config.ui_scale,
             },
         );
+        match self.favorites_height {
+            Some(h) => eframe::set_value(storage, FAVORITES_HEIGHT_KEY, &h),
+            None => storage.remove_string(FAVORITES_HEIGHT_KEY),
+        }
     }
 
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
@@ -284,6 +308,7 @@ impl eframe::App for App {
         if self.renaming.is_none()
             && self.switcher.is_none()
             && self.help.is_none()
+            && self.favorite_dialog.is_none()
             && !self.files.search_focused
         {
             ctx.memory_mut(|m| {
@@ -299,8 +324,16 @@ impl eframe::App for App {
             self.blink_epoch = Instant::now();
         }
         self.window_focused = window_focused;
-        if self.watcher.changed() {
+        let changed = self.watcher.changed();
+        let favorites_file = self
+            .favorites
+            .store_path()
+            .map(std::path::Path::to_path_buf);
+        if changed.iter().any(|p| Some(p) != favorites_file.as_ref()) {
             self.reload_config();
+        }
+        if changed.iter().any(|p| Some(p) == favorites_file.as_ref()) {
+            self.reload_favorites();
         }
         self.collect_problems();
         self.process_events();
@@ -312,6 +345,7 @@ impl eframe::App for App {
             return;
         }
 
+        self.drop_undrawn_rename();
         if self.side.hidden {
             let area = ui.available_rect_before_wrap();
             self.zen_sidebar(&ctx, area);
@@ -323,9 +357,11 @@ impl eframe::App for App {
             }
         }
         self.panes(ui);
+        self.sync_favorite_order_on_change();
         self.switcher_ui(&ctx);
         self.help_ui(&ctx);
         self.reset_prompt_ui(&ctx);
+        self.favorite_dialog_ui(&ctx);
         self.problems_banner(&ctx);
         self.toast_ui(&ctx);
         self.track_focus();

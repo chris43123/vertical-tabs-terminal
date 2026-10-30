@@ -32,7 +32,7 @@ impl App {
     }
 
     /// Fresh directory of tab `id` (re-queried for a shell).
-    fn focused_dir(&mut self, id: TabId) -> Option<PathBuf> {
+    pub(super) fn focused_dir(&mut self, id: TabId) -> Option<PathBuf> {
         let tab = self.tabs.get_mut(&id)?;
         if let Some(session) = tab.session() {
             let cwd = session.proc_info().cwd;
@@ -57,6 +57,7 @@ impl App {
         let mut tab = Tab::new(Content::Term(session), recipe.profile.clone());
         tab.custom_title = recipe.custom_title.clone();
         tab.pending_input = recipe.typed_input();
+        self.link_favorite(&recipe, id);
         tab.recipe = Some(recipe);
         self.tabs.insert(id, tab);
         self.ws.add(id, focused);
@@ -130,6 +131,7 @@ impl App {
         let (Some(recipe), Some(size)) = (tab.recipe.clone(), tab.session().map(|s| s.size)) else {
             return;
         };
+        let recipe = self.current_recipe(recipe);
         // Start the new shell first: if that fails (reported in the banner), the tab and its
         // old session stay as they were.
         let Some(session) = self.start_session(id, &recipe, size) else {
@@ -151,6 +153,8 @@ impl App {
         tab.bell_flash = None;
         tab.cwd = recipe.dir.clone();
         tab.pending_input = recipe.typed_input();
+        tab.profile = recipe.profile.clone();
+        tab.recipe = Some(recipe);
         if self.reset_prompt.as_ref().is_some_and(|p| p.tab == id) {
             self.reset_prompt = None;
         }
@@ -179,6 +183,7 @@ impl App {
         }
         self.ws.close(id);
         self.tabs.remove(&id);
+        self.unlink_favorite(id, false);
         if self.reset_prompt.as_ref().is_some_and(|p| p.tab == id) {
             self.reset_prompt = None;
         }
@@ -207,6 +212,11 @@ impl App {
                 tab.custom_title = closed.custom_title;
             }
             self.ws.reorder(id, closed.index);
+            // A favorite's tab came back (and relinked): its row leads, outside any folder.
+            if self.favorites.favorite_for_tab(id).is_some() {
+                self.ws.set_group(id, None);
+                self.sync_favorite_order();
+            }
         }
     }
 
@@ -229,7 +239,13 @@ impl App {
     }
 
     /// Start renaming a tab in the sidebar (peeking it open if collapsed).
+    /// A favorite's own tab has no row of its own to edit in: its name is the favorite's, so
+    /// this opens the favorite's edit dialog instead.
     pub fn start_rename(&mut self, id: TabId) {
+        if let Some(fav) = self.favorites.favorite_for_tab(id) {
+            self.start_edit_favorite(&fav);
+            return;
+        }
         let current = self
             .tabs
             .get(&id)
@@ -275,7 +291,16 @@ impl App {
     }
 
     /// Start renaming the split view holding `id`.
+    /// A split under a favorite is named by the favorite: that opens its edit dialog.
     pub fn start_view_rename(&mut self, id: TabId) {
+        if let Some(g) = self
+            .favorite_tabs()
+            .into_iter()
+            .find(|g| g.tab == id || g.siblings.contains(&id))
+        {
+            self.start_edit_favorite(&g.id);
+            return;
+        }
         let Some(v) = self.ws.view_of(id) else {
             return;
         };

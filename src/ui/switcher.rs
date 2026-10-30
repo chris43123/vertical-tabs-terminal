@@ -1,4 +1,5 @@
-//! Keyboard tab switcher / command palette (Ctrl+Shift+P): fuzzy-search tabs, commands and profiles.
+//! Keyboard tab switcher / command palette (Ctrl+Shift+P): fuzzy-search tabs, commands,
+//! profiles and favorites.
 //! Commands list their shortcut, so the palette doubles as a cheat sheet.
 
 use eframe::egui::text::{LayoutJob, TextWrapping};
@@ -27,6 +28,8 @@ enum Entry {
     Tab(TabId),
     Command(Action),
     Profile(usize),
+    /// A favorite, by position in the list.
+    Favorite(usize),
 }
 
 struct Row {
@@ -186,6 +189,7 @@ impl App {
                                         Entry::Tab(_) => ("tab", c.accent),
                                         Entry::Command(_) => ("cmd", c.purple),
                                         Entry::Profile(_) => ("new", c.green),
+                                        Entry::Favorite(_) => ("fav", c.bell),
                                     };
                                     ui.painter().text(
                                         rect.left_center() + vec2(12.0, 0.0),
@@ -265,6 +269,11 @@ impl App {
                 Entry::Profile(i) => {
                     self.new_tab(i, None);
                 }
+                Entry::Favorite(i) => {
+                    if let Some(id) = self.favorites.list.list.get(i).map(|f| f.id.clone()) {
+                        self.open_favorite(&id, None);
+                    }
+                }
             }
             self.scroll_to_focused = true;
             return;
@@ -331,7 +340,25 @@ impl App {
                 });
             }
         }
-        // Stable sort: equal scores keep tabs → commands → profiles order.
+        for (i, f) in self.favorites.list.list.iter().enumerate() {
+            let label = format!("Open favorite: {}", f.name);
+            if let Some(score) = fuzzy_score(query, &label) {
+                let mut detail = crate::ui::display_path(&f.path);
+                if let Some(key) = (i < 9)
+                    .then(|| self.keybinds.label(Action::OpenFavorite(i as u8 + 1)))
+                    .flatten()
+                {
+                    detail.push_str(&format!("  {key}"));
+                }
+                rows.push(Row {
+                    entry: Entry::Favorite(i),
+                    label,
+                    detail,
+                    score,
+                });
+            }
+        }
+        // Stable sort: equal scores keep tabs → commands → profiles → favorites order.
         rows.sort_by_key(|r| std::cmp::Reverse(r.score));
         rows
     }
