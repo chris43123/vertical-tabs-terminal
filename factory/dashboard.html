@@ -1,0 +1,335 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>vtt factory</title>
+<!-- Serve from factory/: python3 -m http.server, then open /dashboard.html (add ?demo for sample data). -->
+<style>
+  :root {
+    --bg: #f7f7f5; --panel: #ffffff; --line: #e4e4df; --fg: #1d1d1b; --muted: #75756f;
+    --accent: #3b6fd8; --pass: #2f8a4f; --pass-bg: #e3f3e8; --chg: #c4482f; --chg-bg: #fbe7e2;
+    --pend: #9a9a93; --pend-bg: #efefeb; --human: #c98a00; --human-bg: #fff5d9;
+    --code-bg: #f1f1ed; --shadow: 0 1px 2px rgba(0,0,0,.05), 0 2px 8px rgba(0,0,0,.04);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #141413; --panel: #1d1d1b; --line: #2e2e2b; --fg: #ececea; --muted: #93938c;
+      --accent: #7aa2f7; --pass: #6fcf8e; --pass-bg: #1d3325; --chg: #f08a72; --chg-bg: #3a221c;
+      --pend: #77776f; --pend-bg: #262624; --human: #f2b73a; --human-bg: #33290f;
+      --code-bg: #262624; --shadow: 0 1px 2px rgba(0,0,0,.3);
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--fg);
+    font: 14px/1.45 ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif; }
+  code, pre, .mono { font-family: ui-monospace, "JetBrains Mono", Menlo, Consolas, monospace; font-size: 12.5px; }
+  header { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; padding: 18px 20px 6px; }
+  header h1 { font-size: 17px; margin: 0; font-weight: 650; letter-spacing: -.01em; }
+  header .status { color: var(--muted); font-size: 12.5px; }
+  header .status.err { color: var(--chg); }
+  .alert { margin: 8px 20px 0; padding: 10px 14px; border-radius: 10px; background: var(--human-bg);
+    border: 1px solid var(--human); font-size: 13px; }
+  .alert code { background: transparent; }
+
+  .board { display: grid; grid-template-columns: repeat(6, minmax(200px, 1fr)); gap: 12px;
+    padding: 14px 20px 28px; overflow-x: auto; }
+  .col { min-width: 0; }
+  .col h2 { display: flex; justify-content: space-between; margin: 0 2px 8px; font-size: 11.5px;
+    font-weight: 600; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); }
+  .col h2 .arrow { opacity: .5; }
+  .lane { display: flex; flex-direction: column; gap: 10px; min-height: 120px; padding: 8px;
+    border-radius: 12px; background: color-mix(in srgb, var(--line) 35%, transparent); }
+  .col.needs-human .lane { background: color-mix(in srgb, var(--human-bg) 70%, transparent); }
+
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 10px;
+    padding: 10px 12px; box-shadow: var(--shadow); cursor: pointer; text-align: left;
+    color: inherit; font: inherit; width: 100%; }
+  .card:hover { border-color: color-mix(in srgb, var(--accent) 50%, var(--line)); }
+  .card:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .card.human { border: 1.5px solid var(--human); box-shadow: 0 0 0 3px var(--human-bg); }
+  .card .id { color: var(--muted); font-size: 11.5px; }
+  .card .title { font-weight: 600; margin: 1px 0 4px; }
+  .card .branch { color: var(--muted); font-size: 11.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .card .note { font-size: 12.5px; margin-top: 6px; color: var(--muted); }
+  .card.human .note { color: var(--fg); }
+  .tag { display: inline-block; font-size: 10.5px; font-weight: 650; letter-spacing: .04em;
+    padding: 1px 7px; border-radius: 99px; text-transform: uppercase; white-space: nowrap; }
+  .tag.human { background: var(--human); color: #1d1d1b; }
+  .tag.approve { background: var(--pass-bg); color: var(--pass); }
+  .tag.escalate { background: var(--human-bg); color: var(--human); }
+  .top { display: flex; justify-content: space-between; align-items: center; gap: 6px; }
+
+  .rounds { margin-top: 8px; display: flex; flex-direction: column; gap: 4px; }
+  .round { display: flex; align-items: center; gap: 4px; }
+  .round .n { width: 20px; font-size: 11px; color: var(--muted); }
+  .round.old { opacity: .55; }
+  .chip { font-size: 10.5px; padding: 1px 6px; border-radius: 5px; background: var(--pend-bg);
+    color: var(--pend); border: 1px solid transparent; }
+  .chip.PASS { background: var(--pass-bg); color: var(--pass); }
+  .chip.CHANGES { background: var(--chg-bg); color: var(--chg); }
+  .chip.pending { border: 1px dashed var(--pend); background: transparent; }
+  .empty { color: var(--muted); font-size: 12.5px; text-align: center; padding: 30px 6px; }
+
+  /* Drawer */
+  .scrim { position: fixed; inset: 0; background: rgba(0,0,0,.25); opacity: 0; pointer-events: none; transition: opacity .15s; }
+  .scrim.open { opacity: 1; pointer-events: auto; }
+  aside { position: fixed; top: 0; right: 0; bottom: 0; width: min(720px, 100vw); background: var(--panel);
+    border-left: 1px solid var(--line); transform: translateX(100%); transition: transform .2s ease;
+    display: flex; flex-direction: column; }
+  aside.open { transform: none; }
+  aside .head { padding: 16px 20px 0; display: flex; justify-content: space-between; gap: 12px; }
+  aside .head h3 { margin: 0; font-size: 16px; }
+  aside .close { border: 0; background: none; color: var(--muted); font-size: 22px; line-height: 1; cursor: pointer; }
+  .tabs { display: flex; gap: 2px; flex-wrap: wrap; padding: 12px 16px 0; border-bottom: 1px solid var(--line); }
+  .tabs button { border: 0; background: none; color: var(--muted); font: inherit; font-size: 12.5px;
+    padding: 6px 9px; border-bottom: 2px solid transparent; cursor: pointer; display: flex; gap: 5px; align-items: center; }
+  .tabs button.on { color: var(--fg); border-bottom-color: var(--accent); }
+  .tabs .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--pend); }
+  .tabs .dot.PASS, .tabs .dot.APPROVE { background: var(--pass); }
+  .tabs .dot.CHANGES { background: var(--chg); }
+  .tabs .dot.ESCALATE { background: var(--human); }
+  .doc { padding: 4px 22px 40px; overflow-y: auto; flex: 1; }
+  .doc h1 { font-size: 19px; } .doc h2 { font-size: 15.5px; margin-top: 22px; } .doc h3 { font-size: 14px; }
+  .doc pre { background: var(--code-bg); padding: 10px 12px; border-radius: 8px; overflow-x: auto; }
+  .doc code { background: var(--code-bg); padding: 0 4px; border-radius: 4px; }
+  .doc pre code { background: none; padding: 0; }
+  .doc a { color: var(--accent); }
+  .doc .verdict { display: inline-block; margin-top: 16px; font-weight: 700; font-size: 12px; letter-spacing: .05em;
+    padding: 3px 10px; border-radius: 6px; }
+  .verdict.PASS, .verdict.APPROVE { background: var(--pass-bg); color: var(--pass); }
+  .verdict.CHANGES { background: var(--chg-bg); color: var(--chg); }
+  .verdict.ESCALATE { background: var(--human-bg); color: var(--human); }
+  .doc .missing { color: var(--muted); margin-top: 20px; }
+
+  @media (max-width: 700px) {
+    header, .board { padding-left: 16px; padding-right: 16px; }
+    .alert { margin: 8px 16px 0; }
+    .board { grid-template-columns: 1fr; }
+    .lane { min-height: 0; }
+  }
+  @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+</style>
+</head>
+<body>
+<header>
+  <h1>vtt factory</h1>
+  <span class="status" id="status">loading…</span>
+</header>
+<div id="alert"></div>
+<main class="board" id="board"></main>
+<div class="scrim" id="scrim"></div>
+<aside id="drawer" aria-hidden="true">
+  <div class="head"><div><div class="mono" id="d-id" style="color:var(--muted)"></div><h3 id="d-title"></h3></div>
+    <button class="close" id="d-close" aria-label="Close">×</button></div>
+  <nav class="tabs" id="d-tabs"></nav>
+  <div class="doc" id="d-doc"></div>
+</aside>
+<script>
+const STAGES = [
+  ["spec", "Spec"], ["build", "Build"], ["review", "Review"],
+  ["approve", "Approver"], ["needs-human", "Needs human"], ["merged", "Merged"],
+];
+const LANES = ["security", "ux", "ui", "code"];
+const DEMO = new URLSearchParams(location.search).has("demo");
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+
+let board = { jobs: [] }, lastText = "", openJob = null, openFile = null;
+
+// ---- Data -----------------------------------------------------------------
+async function poll() {
+  try {
+    const text = DEMO ? JSON.stringify(demoBoard()) : await (await fetch("board.json", { cache: "no-store" })).text();
+    $("status").className = "status";
+    $("status").textContent = (DEMO ? "demo data · " : "") + "updated " + new Date().toLocaleTimeString();
+    if (text !== lastText) {
+      lastText = text;
+      board = JSON.parse(text);
+      render();
+      if (openJob) openDrawer(openJob, openFile, true);
+    }
+  } catch (e) {
+    $("status").className = "status err";
+    $("status").textContent = "can't read board.json. Run: cd factory && python3 -m http.server";
+  }
+}
+
+async function readFile(path) {
+  if (DEMO) return demoFile(path);
+  const r = await fetch(path, { cache: "no-store" });
+  return r.ok ? r.text() : null;
+}
+
+// ---- Board ----------------------------------------------------------------
+function render() {
+  const jobs = board.jobs || [];
+  const before = positions();
+  $("board").innerHTML = STAGES.map(([key, label], i) => {
+    const here = jobs.filter((j) => j.stage === key);
+    return `<section class="col ${key}">
+      <h2><span>${label} ${here.length ? "· " + here.length : ""}</span>${i < STAGES.length - 1 && key !== "needs-human" ? '<span class="arrow">→</span>' : ""}</h2>
+      <div class="lane">${here.map(card).join("") || '<div class="empty">—</div>'}</div></section>`;
+  }).join("");
+  document.querySelectorAll(".card").forEach((el) => (el.onclick = () => openDrawer(el.dataset.id)));
+  flip(before);
+
+  const human = jobs.filter((j) => j.stage === "needs-human");
+  $("alert").innerHTML = human.length
+    ? `<div class="alert"><b>${human.length} job${human.length > 1 ? "s" : ""} need${human.length > 1 ? "" : "s"} you.</b> `
+      + human.map((j) => `<code>/factory approve ${esc(j.id)}</code>`).join(" · ")
+      + ` or <code>/factory rework &lt;id&gt; &lt;note&gt;</code></div>`
+    : "";
+}
+
+function card(j) {
+  const rounds = [...(j.history || []), ...(j.reviews ? [j.reviews] : [])];
+  const human = j.stage === "needs-human";
+  const tag = human ? '<span class="tag human">needs human</span>'
+    : j.decision ? `<span class="tag ${j.decision.toLowerCase()}">${esc(j.decision)}</span>` : "";
+  return `<button class="card ${human ? "human" : ""}" data-id="${esc(j.id)}">
+    <div class="top"><span class="id mono">${esc(j.id)}</span>${tag}</div>
+    <div class="title">${esc(j.title || j.id)}</div>
+    <div class="branch mono">${esc(j.branch || "")}</div>
+    ${rounds.length ? `<div class="rounds">${rounds.map((r, i) => `<div class="round ${i < rounds.length - 1 ? "old" : ""}">
+      <span class="n mono">R${i + 1}</span>${LANES.map((l) => chip(l, r[l])).join("")}</div>`).join("")}</div>` : ""}
+    ${j.note ? `<div class="note">${esc(j.note)}</div>` : ""}
+  </button>`;
+}
+const chip = (lane, v = "pending") => `<span class="chip ${esc(v)}" title="${lane}: ${esc(v)}">${lane}</span>`;
+
+// Cards glide to their new column when a job changes stage.
+function positions() {
+  const m = {};
+  document.querySelectorAll(".card").forEach((el) => (m[el.dataset.id] = el.getBoundingClientRect()));
+  return m;
+}
+function flip(before) {
+  if (matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+  document.querySelectorAll(".card").forEach((el) => {
+    const a = before[el.dataset.id]; if (!a) return;
+    const b = el.getBoundingClientRect(), dx = a.left - b.left, dy = a.top - b.top;
+    if (!dx && !dy) return;
+    el.animate([{ transform: `translate(${dx}px,${dy}px)` }, { transform: "none" }], { duration: 450, easing: "cubic-bezier(.2,.7,.2,1)" });
+  });
+}
+
+// ---- Drawer ---------------------------------------------------------------
+function filesFor(j) {
+  const f = [["feature.md", "feature"], ["spec.md", "spec"], ["build.md", "build"]];
+  const n = (j.history || []).length + (j.reviews ? 1 : 0);
+  for (let r = 1; r <= n; r++) {
+    const verdicts = r <= (j.history || []).length ? j.history[r - 1] : j.reviews;
+    LANES.forEach((l) => f.push([`round-${r}/review-${l}.md`, `R${r} ${l}`, verdicts?.[l]]));
+  }
+  f.push(["human.md", "human"], ["decision.md", "decision", j.decision]);
+  return f;
+}
+
+async function openDrawer(id, file, refresh) {
+  const j = (board.jobs || []).find((x) => x.id === id);
+  if (!j) return closeDrawer();
+  openJob = id;
+  const files = filesFor(j);
+  const texts = await Promise.all(files.map(([p]) => readFile(`jobs/${id}/${p}`)));
+  const present = files.map((f, i) => [...f, texts[i]]).filter((f) => f[3] != null);
+  if (!file || !present.some((f) => f[0] === file)) file = present.at(-1)?.[0];
+  openFile = file;
+
+  $("d-id").textContent = j.id + "  ·  " + (j.branch || "");
+  $("d-title").textContent = j.title || j.id;
+  $("d-tabs").innerHTML = present.map(([p, label, v]) =>
+    `<button data-p="${esc(p)}" class="${p === file ? "on" : ""}">${v ? `<span class="dot ${esc(v)}"></span>` : ""}${esc(label)}</button>`).join("");
+  $("d-tabs").querySelectorAll("button").forEach((b) => (b.onclick = () => openDrawer(id, b.dataset.p)));
+  const cur = present.find((f) => f[0] === file);
+  $("d-doc").innerHTML = cur ? md(cur[3]) : '<p class="missing">No files yet.</p>';
+  if (!refresh) $("d-doc").scrollTop = 0;
+  $("drawer").classList.add("open"); $("scrim").classList.add("open");
+  $("drawer").setAttribute("aria-hidden", "false");
+}
+function closeDrawer() {
+  openJob = openFile = null;
+  $("drawer").classList.remove("open"); $("scrim").classList.remove("open");
+  $("drawer").setAttribute("aria-hidden", "true");
+}
+$("d-close").onclick = closeDrawer;
+$("scrim").onclick = closeDrawer;
+addEventListener("keydown", (e) => e.key === "Escape" && closeDrawer());
+
+// ---- Tiny markdown --------------------------------------------------------
+function inline(s) {
+  return esc(s)
+    .replace(/`([^`]+)`/g, "<code>$1</code>")
+    .replace(/\*\*([^*]+)\*\*/g, "<b>$1</b>")
+    .replace(/(^|[^*])\*([^*\s][^*]*)\*/g, "$1<i>$2</i>")
+    .replace(/\[([^\]]+)\]\((https?:[^)\s]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>');
+}
+function md(src) {
+  const lines = src.replace(/\r/g, "").split("\n"), out = [];
+  let list = null, para = [];
+  const flushP = () => { if (para.length) out.push(`<p>${inline(para.join(" "))}</p>`); para = []; };
+  const flushL = () => { if (list) out.push(`</${list}>`); list = null; };
+  const first = lines.findIndex((l) => l.trim());
+  for (let i = 0; i < lines.length; i++) {
+    const l = lines[i];
+    let m;
+    if (i === first && (m = l.match(/^(?:VERDICT:\s*)?(PASS|CHANGES|APPROVE|ESCALATE)\s*$/))) {
+      out.push(`<div class="verdict ${m[1]}">${esc(l.trim())}</div>`); continue;
+    }
+    if (l.startsWith("```")) {
+      flushP(); flushL();
+      const code = [];
+      while (++i < lines.length && !lines[i].startsWith("```")) code.push(lines[i]);
+      out.push(`<pre><code>${esc(code.join("\n"))}</code></pre>`); continue;
+    }
+    if ((m = l.match(/^(#{1,4})\s+(.*)/))) { flushP(); flushL(); out.push(`<h${m[1].length}>${inline(m[2])}</h${m[1].length}>`); continue; }
+    if ((m = l.match(/^\s*([-*]|\d+\.)\s+(.*)/))) {
+      flushP();
+      const kind = /\d/.test(m[1]) ? "ol" : "ul";
+      if (list !== kind) { flushL(); out.push(`<${kind}>`); list = kind; }
+      out.push(`<li>${inline(m[2].replace(/^\[( |x)\]\s*/, (_, c) => (c === "x" ? "☑ " : "☐ ")))}</li>`); continue;
+    }
+    if (!l.trim()) { flushP(); flushL(); continue; }
+    if (list && /^\s{2,}/.test(l)) { out[out.length - 1] = out.at(-1).replace(/<\/li>$/, " " + inline(l.trim()) + "</li>"); continue; }
+    flushL(); para.push(l.trim());
+  }
+  flushP(); flushL();
+  return out.join("\n");
+}
+
+// ---- Demo data (dashboard.html?demo) ----------------------------------------
+function demoBoard() {
+  const t = Math.floor(Date.now() / 4000) % 4; // a review round filling in, on a loop
+  const live = ["pending", "pending", "pending", "pending"].map((v, i) => (i < t ? ["PASS", "PASS", "PASS", "PASS"][i] : v));
+  return { jobs: [
+    { id: "001-exit-status", title: "Show exit status in tab hover", branch: "factory/001-exit-status", stage: "merged",
+      round: 2, history: [{ security: "PASS", ux: "CHANGES", ui: "PASS", code: "PASS" }],
+      reviews: { security: "PASS", ux: "PASS", ui: "PASS", code: "PASS" }, decision: "APPROVE", note: "merged into main" },
+    { id: "002-copy-cwd", title: "Copy working directory action", branch: "factory/002-copy-cwd", stage: "needs-human",
+      round: 1, reviews: { security: "PASS", ux: "PASS", ui: "PASS", code: "PASS" }, decision: "ESCALATE",
+      note: "Adds a macOS default (⌘⇧C); a human should confirm the binding." },
+    { id: "003-untracked-color", title: "Color untracked files", branch: "factory/003-untracked-color", stage: "review",
+      round: 2, history: [{ security: "PASS", ux: "PASS", ui: "CHANGES", code: "CHANGES" }],
+      reviews: Object.fromEntries(LANES.map((l, i) => [l, live[i]])), note: "round 2: waiting for all 4 reviews" },
+    { id: "004-folder-colors", title: "More folder colors", branch: "factory/004-folder-colors", stage: "spec", note: "spec-writer is drafting" },
+  ] };
+}
+function demoFile(path) {
+  if (path.endsWith("feature.md")) return "# Feature\n\nThe request, verbatim from `/factory <feature>`.";
+  if (path.endsWith("spec.md")) return "# Spec\n\n## Goal\nWhat the user gets.\n\n## Acceptance criteria\n1. Observable, testable statement — verify: unit test\n2. `cargo fmt`, `clippy -D warnings` and `cargo test` pass";
+  if (path.endsWith("build.md")) return "## Initial build\nCommits: `a1b2c3d` Add the feature\nChecks: fmt ✓ clippy ✓ test ✓ (93 passed)\n\n### Acceptance criteria\n1. ✓ criterion — `tests::it_works`";
+  if (path.endsWith("decision.md")) return path.includes("002") ? "ESCALATE\n\n## Why\nIt adds a new default keybinding.\n\n## For the human\n- Confirm ⌘⇧C on macOS — `src/config/keybinds.rs:88`" : path.includes("001") ? "APPROVE\n\n## Why\nAll reviews pass and every criterion is met." : null;
+  if (path.includes("review-")) {
+    const j = demoBoard().jobs.find((x) => path.includes(x.id)), r = +path.match(/round-(\d+)/)[1], lane = path.match(/review-(\w+)/)[1];
+    const v = (r <= (j.history || []).length ? j.history[r - 1] : j.reviews)?.[lane];
+    if (!v || v === "pending") return null;
+    return `VERDICT: ${v}\n\n## Blocking\n${v === "CHANGES" ? "1. `src/ui/files.rs:120` — hardcoded color — use `UiColors`" : ""}\n\n## Notes\n- looks good`;
+  }
+  return null;
+}
+
+poll();
+setInterval(poll, 2000);
+</script>
+</body>
+</html>
