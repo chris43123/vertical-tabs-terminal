@@ -58,8 +58,8 @@
       "id": "003-favorite-sessions",
       "title": "Favorite directories as pinned sessions",
       "branch": "factory/003-favorite-sessions",
-      "stage": "build",
-      "round": 4,
+      "stage": "approve",
+      "round": 5,
       "reviews": {},
       "history": [
         {
@@ -83,10 +83,15 @@
           "security": "SKIPPED",
           "design": "PASS",
           "code": "PASS"
+        },
+        {
+          "security": "PASS",
+          "design": "PASS",
+          "code": "PASS"
         }
       ],
       "decision": null,
-      "note": "rework: fixing three leftovers (banner, drag auto-scroll, order after split)",
+      "note": "round 5 all PASS; approver deciding",
       "updated": "2026-10-30T20:10:08Z"
     }
   ]
