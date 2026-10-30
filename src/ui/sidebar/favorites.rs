@@ -1,10 +1,10 @@
 //! The pinned favorites above the tabs, under a "Favorites" header (with a + on hover). A
 //! favorite's row *is* its tab once open: it shows the focused state, unread and bell
 //! markers and a close button, and the other tabs of its split view are listed under it
-//! rather than among the tabs. Each row has a status dot (open / no tab / exited), its name
+//! rather than among the tabs. Each row has a tile (the name's first grapheme with the
+//! status dot, open / no tab / exited, and the unread badge on its corners), its name
 //! (dimmed when the directory is missing), ↻ reset or ▶ open on hover, a context menu and
-//! drag reorder. A handle under the section resizes it. Collapsed, a row is the name's first
-//! grapheme plus the dot.
+//! drag reorder. A handle under the section resizes it. Collapsed, a row is just the tile.
 
 use eframe::egui::text::{LayoutJob, TextWrapping};
 use eframe::egui::{
@@ -28,6 +28,9 @@ const HANDLE_HEIGHT: f32 = 8.0;
 const DEFAULT_SHARE: f32 = 0.4;
 /// The most a dragged height may take, so the tab list never disappears.
 const MAX_SHARE: f32 = 0.85;
+/// Side of a favorite's tile in the expanded and the collapsed sidebar.
+const TILE_EXPANDED: f32 = 20.0;
+const TILE_COLLAPSED: f32 = 22.0;
 /// Contrast kept by a missing favorite's dimmed name against the sidebar.
 const DIM_CONTRAST: f32 = 3.0;
 
@@ -167,8 +170,11 @@ impl App {
     /// The line under the favorites: drag it to make the section taller or shorter (kept
     /// for the session and across restarts).
     fn favorites_handle(&mut self, ui: &mut Ui, shown: f32, content: f32, row: f32) {
-        let (rect, resp) =
-            ui.allocate_exact_size(vec2(ui.available_width(), HANDLE_HEIGHT), Sense::drag());
+        // Click sense too: a drag-only response never reports the double-click that resets it.
+        let (rect, resp) = ui.allocate_exact_size(
+            vec2(ui.available_width(), HANDLE_HEIGHT),
+            Sense::click_and_drag(),
+        );
         let resp = resp.on_hover_cursor(egui::CursorIcon::ResizeVertical);
         let active = resp.hovered() || resp.dragged();
         let color = if active {
@@ -259,16 +265,20 @@ impl App {
         };
 
         if expanded {
-            self.status_dot(&painter, pos2(rect.left() + 11.0, rect.center().y), status);
+            let icon = Rect::from_center_size(
+                pos2(rect.left() + 15.0, rect.center().y),
+                vec2(TILE_EXPANDED, TILE_EXPANDED),
+            );
+            self.favorite_tile(&painter, icon, &fav.name, text_color, status, badge);
             let right_button = Rect::from_center_size(
                 pos2(rect.right() - 13.0, rect.center().y),
                 vec2(18.0, 18.0),
             );
             let left_button = right_button.translate(vec2(-20.0, 0.0));
-            let left = rect.left() + 22.0;
+            let left = icon.right() + 7.0;
             let right = rect.right() - if tab.is_some() { 48.0 } else { 28.0 };
             let mut job = LayoutJob::simple_singleline(
-                fav.name.clone(),
+                row_label(&fav.name).to_string(),
                 FontId::proportional(13.0),
                 text_color,
             );
@@ -282,9 +292,6 @@ impl App {
             let hovered = resp.hovered()
                 || ui.rect_contains_pointer(right_button)
                 || ui.rect_contains_pointer(left_button);
-            if let Some(color) = badge.filter(|_| !hovered) {
-                painter.circle_filled(right_button.center(), 4.0, color);
-            }
             if hovered {
                 // Open: ↻ reset and × close. No tab: ▶ open.
                 let buttons: Vec<(Rect, &str, &str, Action)> = match tab {
@@ -325,29 +332,8 @@ impl App {
                 }
             }
         } else {
-            let icon = Rect::from_center_size(rect.center(), vec2(22.0, 22.0));
-            painter.rect_stroke(
-                icon,
-                CornerRadius::same(5),
-                Stroke::new(1.0, c.raised_sidebar(0.2)),
-                StrokeKind::Inside,
-            );
-            painter.text(
-                icon.center(),
-                Align2::CENTER_CENTER,
-                first_grapheme(&fav.name),
-                FontId::proportional(13.0),
-                text_color,
-            );
-            self.status_dot(&painter, icon.right_bottom() + vec2(-1.0, -1.0), status);
-            if let Some(color) = badge {
-                painter.circle_filled(icon.right_top() + vec2(-1.0, 1.0), 4.5, color);
-                painter.circle_stroke(
-                    icon.right_top() + vec2(-1.0, 1.0),
-                    4.5,
-                    Stroke::new(1.5, c.sidebar),
-                );
-            }
+            let icon = Rect::from_center_size(rect.center(), vec2(TILE_COLLAPSED, TILE_COLLAPSED));
+            self.favorite_tile(&painter, icon, &fav.name, text_color, status, badge);
             if focused {
                 painter.rect_stroke(
                     icon.expand(2.5),
@@ -462,6 +448,40 @@ impl App {
         rect
     }
 
+    /// A favorite's tile, the same in both sidebar widths: the name's first grapheme in a
+    /// rounded square, the status dot on its bottom-right corner and the unread or bell
+    /// badge on its top-right one.
+    fn favorite_tile(
+        &self,
+        painter: &egui::Painter,
+        icon: Rect,
+        name: &str,
+        text_color: Color32,
+        status: FavStatus,
+        badge: Option<Color32>,
+    ) {
+        let c = &self.chrome;
+        painter.rect_stroke(
+            icon,
+            CornerRadius::same(5),
+            Stroke::new(1.0, c.raised_sidebar(0.2)),
+            StrokeKind::Inside,
+        );
+        painter.text(
+            icon.center(),
+            Align2::CENTER_CENTER,
+            first_grapheme(name),
+            FontId::proportional(icon.height() * 0.6),
+            text_color,
+        );
+        self.status_dot(painter, icon.right_bottom() + vec2(-1.0, -1.0), status);
+        if let Some(color) = badge {
+            let at = icon.right_top() + vec2(-1.0, 1.0);
+            painter.circle_filled(at, 4.5, color);
+            painter.circle_stroke(at, 4.5, Stroke::new(1.5, c.sidebar));
+        }
+    }
+
     /// Open: filled green. Exited: filled red. No tab: a hollow ring.
     fn status_dot(&self, painter: &egui::Painter, center: Pos2, status: FavStatus) {
         let c = &self.chrome;
@@ -498,6 +518,20 @@ pub(super) fn first_grapheme(name: &str) -> String {
     out
 }
 
+/// The name next to a favorite's tile: without a leading emoji or symbol, which the tile
+/// already shows. A name that starts with a letter or digit stays whole.
+pub(super) fn row_label(name: &str) -> &str {
+    let name = name.trim();
+    let first = first_grapheme(name);
+    let rest = name[first.len()..].trim_start();
+    let symbol = first.chars().next().is_some_and(|c| !c.is_alphanumeric());
+    if symbol && !rest.is_empty() {
+        rest
+    } else {
+        name
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -510,6 +544,17 @@ mod tests {
         assert_eq!(first_grapheme("e\u{301}cole"), "e\u{301}");
         assert_eq!(first_grapheme("👍🏽 ok"), "👍🏽");
         assert_eq!(first_grapheme(""), "");
+    }
+
+    #[test]
+    fn row_label_drops_the_emoji_the_tile_shows() {
+        assert_eq!(row_label("🚀 tmp"), "tmp");
+        assert_eq!(row_label("❤\u{FE0F}  love"), "love");
+        assert_eq!(row_label("api"), "api");
+        assert_eq!(row_label("1 web"), "1 web");
+        assert_eq!(row_label("🚀"), "🚀");
+        assert_eq!(row_label(" é "), "é");
+        assert_eq!(row_label(""), "");
     }
 
     /// The UI keeps egui's default fonts, whose fallbacks draw monochrome emoji and the

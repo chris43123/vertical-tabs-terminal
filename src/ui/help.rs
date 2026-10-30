@@ -164,7 +164,10 @@ fn gestures() -> Vec<(&'static str, Vec<(&'static str, &'static str)>)> {
                     "Right click",
                     "Reset, split, reveal in files, edit, close, remove",
                 ),
-                ("Dot", "Green: open; ring: no tab; red: its shell exited"),
+                (
+                    "Tile dot",
+                    "Green: open; ring: no tab; red: its shell exited",
+                ),
             ],
         ),
         (

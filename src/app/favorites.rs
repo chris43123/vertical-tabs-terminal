@@ -183,6 +183,13 @@ fn group_favorite_tabs(
         .collect()
 }
 
+/// Whether `tab` is a favorite's own tab or one of its split's other tabs.
+fn in_favorite_split(groups: &[FavoriteTabs], tab: TabId) -> bool {
+    groups
+        .iter()
+        .any(|g| g.tab == tab || g.siblings.contains(&tab))
+}
+
 /// How a broken favorites file is reported (see [`Store::load`]).
 const INVALID_FILE: &str = "invalid favorites file";
 
@@ -335,8 +342,21 @@ impl App {
             );
             return;
         }
-        if let Some(recipe) = self.favorite_recipe(&fav)
-            && let Some(tab) = self.spawn_tab(recipe, split)
+        let Some(mut recipe) = self.favorite_recipe(&fav) else {
+            return;
+        };
+        // Splitting into another favorite's view: a plain tab started like this favorite
+        // joins that favorite's split, and this favorite's own row stays as it was (two
+        // favorite rows sharing one split would be bracketed apart).
+        let into_favorite = split.is_some()
+            && self
+                .ws
+                .focused()
+                .is_some_and(|t| in_favorite_split(&self.favorite_tabs(), t));
+        if into_favorite {
+            recipe.favorite = None;
+        }
+        if let Some(tab) = self.spawn_tab(recipe, split)
             && split.is_none()
         {
             // Its row is the favorite's, above the tabs: it doesn't join the focused folder.
@@ -586,6 +606,29 @@ mod tests {
         let groups = group_favorite_tabs(&favs, link, &[2, 3, 4, 6], view_of);
         assert_eq!(groups[0].siblings, vec![3]);
         assert_eq!(groups[1].siblings, Vec::<TabId>::new());
+    }
+
+    #[test]
+    fn a_split_into_a_favorite_is_found_from_any_of_its_tabs() {
+        let groups = [
+            FavoriteTabs {
+                id: "f1".into(),
+                tab: 2,
+                siblings: vec![3, 5],
+            },
+            FavoriteTabs {
+                id: "f2".into(),
+                tab: 4,
+                siblings: vec![],
+            },
+        ];
+        for t in [2, 3, 5, 4] {
+            assert!(in_favorite_split(&groups, t), "{t}");
+        }
+        for t in [1, 6] {
+            assert!(!in_favorite_split(&groups, t), "{t}");
+        }
+        assert!(!in_favorite_split(&[], 2));
     }
 
     #[test]
