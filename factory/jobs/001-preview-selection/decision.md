@@ -1,0 +1,24 @@
+ESCALATE
+
+## Why
+Round 3, the latest, has four PASS reviews and no blocking points. None were declined in any round. I re-ran fmt, clippy (`-D warnings`) and test in the worktree and all pass (104 tests). Criteria 1-4 are unit-tested. Several things still need a human. (1) **New default keybindings.** `Ctrl+A`, `Ctrl+C`, `Ctrl+Shift+C` and `Esc` act in a focused preview, and `⌘A`/`⌘C` on macOS. They are scoped to the preview and follow editor norms, but new defaults are the human's call. (2) **Changes to existing behavior.** Code rows dropped egui's native label selection for a custom one. Terminal selection rendering changed too: selected cells now get their foreground recolored, and an invisible theme selection gets a fallback blend. (3) **A config/theme format change.** There is a new `selection_foreground` key in kitty files, vtt TOML and `[colors]`, while the spec said "no new config key". You asked for this in human.md, but it still extends the format. (4) **Criterion 6 is only partly met for rendered markdown.** Rendered markdown was the original complaint. egui drops the selection once the anchor label scrolls off screen, so a long drag there still fails. The README points users to Source plus line numbers, or Copy. (5) Manual criteria 5-9 were never run, and neither was a visual check of terminal selection. The macOS `⌘` path can't be exercised on this Linux box.
+
+## For the human
+- Decide on the preview-scoped default keys. Ctrl/⌘+A select-all and Esc-clear are in `preview_key` at `src/app/input.rs:151`. Ctrl+C falls back to the preview selection at `src/app/input.rs:177` and `src/app/input.rs:201`. They are documented at `README.md:85` and `README.md:121`. Check them against the "no invented keybinds" rule. The spec's fallback was to ship Copy via the button and menu only.
+- Accept or reject the new theme key `selection_foreground`. It is parsed at `src/theme/formats.rs:44` (TOML/`[colors]`) and `src/theme/formats.rs:100` (kitty), and resolved in `SelectionColors` at `src/theme/chrome.rs:95-135`. It is documented at `README.md:323`, `README.md:335` and `README.md:361` (matugen template), and in `config.example.toml:83`.
+- Look at terminal selection, which changed. `src/render/grid.rs:251-253` now recolors the selected text, not just the background. Select text in a terminal tab with your quickshell/matugen kitty theme. It should read #5D3F3B on #FFDAD5. Also check that `min_contrast` still applies.
+- Accept or reject the rendered-markdown gap. Try the original large .md file. A long drag in rendered mode loses its selection once the start scrolls away. The workaround text is at `README.md:123`. The markdown auto-scroll relies on egui's internal scrollbar ids (`src/ui/preview/markdown.rs:90`), so it may break on an egui upgrade.
+- Run manual criteria 5-9:
+  - In a 3000-line file, click gutter line 1, Shift+click line 3000, press Ctrl+C and paste. All lines should arrive, and the toast should read "Copied 3,000 lines".
+  - Drag past the bottom edge with Wrap on, then with Wrap off.
+  - Press toolbar Copy with nothing selected, in a code file and in rendered markdown (it should copy the source). Rendered markdown injects `egui::Event::Copy` on press (`src/ui/preview/mod.rs:298`).
+  - In a terminal, Ctrl+C should still copy when text is selected and send SIGINT when nothing is. Terminal copies get no toast.
+  - Watch idle CPU in `top` with a preview open and a selection active.
+- Optional hardening from the security review: the clamp at `src/ui/preview/code.rs:298` would panic if the viewport were ever under 1 pt tall. That can't happen today because of the ScrollArea 64 pt minimum.
+- To run it: `CARGO_TARGET_DIR=/home/chris43123/Documents/git/vertical-tabs-terminal/target cargo run` in .worktrees/001-preview-selection
+
+## Summary
+- Code and markdown-source previews keep the selection in document coordinates, using the new pure `src/preview/selection.rs`. Selection works by drag, Shift+click, double-click and triple-click. Clicking line numbers selects whole lines, including ranges. Dragging near or past an edge auto-scrolls, in code views and rendered markdown. There is a toolbar Copy button (selection, or the whole file / markdown source). The right-click menu has Copy, Copy all and Copy reference (`path:12-40`). Ctrl/⌘+A, Ctrl+C and Esc work in a focused preview.
+- A short, theme-colored toast confirms each preview copy or reports a clipboard failure. It honors `reduce_motion` and goes idle afterwards.
+- Selected text stays readable in both terminals and previews. A shared `SelectionColors` rule uses the theme's new optional `selection_foreground`, or else swaps colors for contrast. The WCAG contrast helpers moved from `render::grid` to `theme::chrome`.
+- Commits: 4645755 Select and copy anything in a preview, however long. 12c0bf5 Confirm copies with a short toast. ce46efa Keep selected text readable in terminals and previews.

@@ -8,3 +8,6 @@
 
 # Release packages (scripts/package-*)
 /dist/
+
+# Factory job worktrees (factory/merge.sh removes them)
+/.worktrees/

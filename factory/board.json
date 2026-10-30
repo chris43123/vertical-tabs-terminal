@@ -1,0 +1,34 @@
+{
+  "jobs": [
+    {
+      "id": "001-preview-selection",
+      "title": "Copying long content from the preview pane",
+      "branch": "factory/001-preview-selection",
+      "stage": "needs-human",
+      "round": 3,
+      "reviews": {
+        "security": "PASS",
+        "ux": "PASS",
+        "ui": "PASS",
+        "code": "PASS"
+      },
+      "history": [
+        {
+          "security": "PASS",
+          "ux": "PASS",
+          "ui": "PASS",
+          "code": "PASS"
+        },
+        {
+          "security": "PASS",
+          "ux": "PASS",
+          "ui": "PASS",
+          "code": "PASS"
+        }
+      ],
+      "decision": "ESCALATE",
+      "note": "New preview keys, terminal selection recolor and selection_foreground key need a human call; manual checks not yet run.",
+      "updated": "2026-10-20T05:08:44Z"
+    }
+  ]
+}
