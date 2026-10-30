@@ -27,6 +27,7 @@ Inspired by Warp, minus the weight: Warp's good ideas (a file tree that follows 
 - **Git at a glance.** The files panel shows the branch, commits ahead/behind, and changed files highlighted in green.
 - **File search.** Fuzzy-find any file in the project from the files panel.
 - **Reset tab.** Every tab remembers how it was launched (shell, directory, name). "Reset tab" (`⌘⇧R` on macOS, or the palette and the tab's right-click menu) kills everything running in it, background jobs included, and starts a fresh shell in the same slot, split and folder, in the directory it was opened in. A wedged REPL, a hung `ssh` or a runaway build is one click from a clean prompt. It asks first if a program is running (`confirm_reset`; on Windows vtt can't tell, so it never asks). On Linux/macOS, processes that detach with `setsid` (daemons) leave the tab's session and survive by design.
+- **Closing the last tab keeps vtt open**, on an empty screen with the new-tab shortcut, a New terminal button and Reopen closed tab. A new tab there starts in the directory of the tab closed last. Quit with `⌘Q` on macOS or by closing the window.
 - **Hover a tab** for a moment to see its full working directory and the program running in it.
 - **Auto titles.** A tab shows the title the shell sets, or `<process> · <cwd>` (on Linux and macOS).
 - **Activity indicators.** A dot appears when a background tab prints output, and a badge on a bell or when the process exits.

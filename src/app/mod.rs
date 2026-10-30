@@ -353,11 +353,6 @@ impl eframe::App for App {
         self.handle_keyboard();
         self.poll();
 
-        if self.tabs.is_empty() {
-            ctx.send_viewport_cmd(egui::ViewportCommand::Close);
-            return;
-        }
-
         self.drop_undrawn_rename();
         if self.side.hidden {
             let area = ui.available_rect_before_wrap();
