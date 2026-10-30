@@ -29,6 +29,30 @@
       "decision": "ESCALATE",
       "note": "approved by human",
       "updated": "2026-10-30T14:26:48Z"
+    },
+    {
+      "id": "002-launch-recipes-reset",
+      "title": "Launch recipes and Reset tab",
+      "branch": "factory/002-launch-recipes-reset",
+      "stage": "merged",
+      "round": 2,
+      "reviews": {
+        "security": "PASS",
+        "ux": "PASS",
+        "ui": "PASS",
+        "code": "PASS"
+      },
+      "history": [
+        {
+          "security": "PASS",
+          "ux": "PASS",
+          "ui": "PASS",
+          "code": "PASS"
+        }
+      ],
+      "decision": "APPROVE",
+      "note": "merged to main (eee9e52)",
+      "updated": "2026-10-30T15:11:53Z"
     }
   ]
 }
