@@ -58,13 +58,12 @@
       "id": "003-favorite-sessions",
       "title": "Favorite directories as pinned sessions",
       "branch": "factory/003-favorite-sessions",
-      "stage": "build",
-      "round": 2,
+      "stage": "review",
+      "round": 4,
       "reviews": {
-        "security": "PASS",
-        "ux": "PASS",
-        "ui": "PASS",
-        "code": "PASS"
+        "security": "SKIPPED",
+        "design": "pending",
+        "code": "pending"
       },
       "history": [
         {
@@ -72,11 +71,16 @@
           "ux": "CHANGES",
           "ui": "CHANGES",
           "code": "CHANGES"
+        },
+        {
+          "security": "SKIPPED",
+          "design": "CHANGES",
+          "code": "PASS"
         }
       ],
       "decision": null,
-      "note": "rework: favorite row is the tab, resizable section, same path twice, header with + button, README note",
-      "updated": "2026-10-30T17:07:25Z"
+      "note": "paused by the human before round 4 finished; re-run design and code reviews for round 4 to resume",
+      "updated": "2026-10-30T17:17:25Z"
     }
   ]
 }

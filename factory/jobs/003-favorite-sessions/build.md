@@ -40,3 +40,41 @@ Pushed: origin/factory/003-favorite-sessions at ac094cb
 - ui #1 / ux #1 (unbounded favorites section): fixed in ac094cb. The rows are in their own `ScrollArea` (`id_salt(("favorites", expanded))`, `max_height` = 40% of the remaining sidebar height, `auto_shrink([false, true])`). The drag insertion line is hit-tested and clipped against the visible area.
 - ui notes: the missing-dir dim goes through `ensure_contrast(.., sidebar, max(3.0, min_contrast))`. The hover glyph is ▶ when there is no tab and ↻ when there is. The focused favorite's tint is lighter than the tab's. The palette badge stays `c.bell`: every other `UiColors` hue already has a meaning there, and a derived mix would not be clearly distinct.
 - ux notes: a fixed favorites file now clears its "invalid favorites file" banner, and a config reload re-reports a still-broken one (`reload_config` calls `reload_favorites`). Declined: "`~` in the dialog isn't expanded". It already is, because the dialog's path goes through `canonical_dir`, which calls `expand_tilde`. The nine "Open favorite N" rows in the help window stay, since rebinding needs one row per action.
+
+## Human feedback (2026-10-30T17:07Z)
+Commits: 8abc5cf Make a favorite's row its tab and let one directory be pinned twice
+Checks: fmt ✓  clippy ✓  test ✓ (152 passed)
+Pushed: origin/factory/003-favorite-sessions at 8abc5cf
+
+### Acceptance criteria
+Unchanged from round 1. The manual criteria are being run by the human.
+
+### Review responses
+- human #1 (README, dropped bad command): done. The Favorites section's file paragraph now says a hand-edited command with a line break or control character is ignored with a warning and dropped from the file on the next write, next to the rc-file trust note.
+- human #2 (favorite row is its tab): done.
+  - The tab list skips every tab under a favorite (`App::tabs_under_favorites`). The grouping is the pure function `group_favorite_tabs` in `src/app/favorites.rs`, tested by `favorite_rows_take_their_tab_and_its_split`.
+  - The favorite row has the tab-row highlight (focused / active view), the bell and unread dots, × close on hover, middle-click close, and the split bracket.
+  - Its menu, when open: Reset, Split right with new tab, Minimise from split, Reveal in files panel, Rename / edit…, Close tab, Remove favorite. Rename goes through the edit dialog, since the name lives in the file. Double-click opens the same dialog.
+  - Split siblings are drawn as normal tab rows under the favorite.
+  - A favorite tab opened without a split leaves any folder. `sync_favorite_order` keeps the favorites' tabs at the front of `ws.order`, in favorites order, so next/previous tab and "go to tab N" match the sidebar.
+  - Side effect to know: "Open in split" on a closed favorite splits the focused view, so that view's tabs move under the favorite. That follows from "splits stay with it".
+- human #3 (resizable section): done. A drag handle (the line under the section, resize cursor) sets `App::favorites_height`, clamped between one row and the rows' full height, and at draw time to at most 85% of the remaining sidebar. Double-click goes back to the default (40% cap). The height is persisted with eframe storage (`favorites_height`), like the UI zoom.
+- human #4 (same directory twice): done. The duplicate-path check is removed from `validate` (and `same_dir` is gone). The tests now assert that a second favorite for the same path gets its own id (`same_dir_twice_is_allowed_…`, `add_allows_one_dir_twice_…`).
+- human #5 ("Favorites" header with + on hover): done. It shows in the expanded sidebar, including when the list is empty (so the + can add the first one). The collapsed strip shows nothing until there are favorites.
+
+## Round 3
+Commits: 808dcbc Rename a favorite's tab through its edit dialog
+Checks: fmt ✓  clippy ✓  test ✓ (152 passed)
+Pushed: origin/factory/003-favorite-sessions at 808dcbc
+
+### Acceptance criteria
+Unchanged. Manual criteria are with the human.
+
+### Review responses
+- design #1 (Rename tab on a favorite's tab does nothing and keeps the peek open): fixed in 808dcbc.
+  - `start_rename` opens the favorite's edit dialog when the tab is a favorite's own tab (`FavoritesState::favorite_for_tab`).
+  - `start_view_rename` does the same for a split view under a favorite.
+  - As a guard, `App::drop_undrawn_rename` runs every frame before the sidebar or zen overlay and clears a rename whose target has no drawn editor.
+  - Test: `App` can't be built in unit tests (it needs an egui/eframe context), so the test covers the lookup the fix relies on: `links_are_by_id_and_track_how_tabs_ended` now asserts `favorite_for_tab` for linked, unlinked and unknown tabs. That `renaming` stays `None` is left for the manual pass (Cmd+R on a favorite's tab).
+- code note (reopen_closed_tab): fixed in 808dcbc. A reopened tab that relinks to its favorite leaves its folder and `sync_favorite_order` runs.
+- Left as notes: `favorite_tabs()` runs twice per frame (cheap at realistic sizes). `sync_favorite_order` doesn't run when a tab is later split under a favorite. "Open in split" keeps the group (documented side effect).
