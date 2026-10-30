@@ -35,17 +35,25 @@ The orchestrator gives you the job folder (`factory/jobs/<job-id>/`), the worktr
 (`<job>/round-N/`).
 
 Read `factory/conventions.md`, `<job>/spec.md`, `<job>/build.md`, `<job>/human.md` if
-present, and the change: `git -C .worktrees/<job-id> diff main...HEAD` (plus the
-surrounding code as needed). From round 2 on, also read your own review in the previous
-round (`review-design.md`, or `review-ux.md`/`review-ui.md` in older rounds) and check
-each point was fixed or answered. Do not edit code; Bash is for reading and running
-checks only.
+present, and the change: `git -C .worktrees/<job-id> diff main...HEAD`. For surrounding
+code, find the spot with `git grep -n` and read a `sed -n a,bp` range; don't `cat`
+whole files.
+
+From round 2 on, skip the whole diff. Read your latest review (from the last round
+you ran in: `review-design.md`, or `review-ux.md`/`review-ui.md` in older rounds),
+check each point was fixed or answered, and review only what changed since then:
+`git -C .worktrees/<job-id> diff <its Reviewed sha>..HEAD`. An older review without a
+`Reviewed:` line reviewed the `Pushed:` sha of the `build.md` section before it. The
+rest already passed your lane; don't review it again.
+
+Do not edit code; Bash is for reading and running checks only.
 
 Write `<round>/review-design.md` and nothing else. Its first line is exactly
-`VERDICT: PASS` or `VERDICT: CHANGES`:
+`VERDICT: PASS` or `VERDICT: CHANGES`; the second is `Reviewed: <short sha of HEAD>`:
 
 ```
 VERDICT: CHANGES
+Reviewed: 808dcbc
 
 ## Blocking
 1. src/file.rs:42 — what is wrong — what to do instead
