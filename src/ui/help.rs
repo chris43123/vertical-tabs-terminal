@@ -128,7 +128,7 @@ fn gestures() -> Vec<(&'static str, Vec<(&'static str, &'static str)>)> {
         ("Right click", "Copy the selection, or paste"),
         (
             if mac { "⌘+click" } else { "Ctrl+click" },
-            "Open the link under the pointer",
+            "Open the link or file path under the pointer",
         ),
         ("Wheel", "Scroll back (apps that use the mouse get it)"),
     ]);

@@ -45,6 +45,8 @@ enum PaneAction {
     Close(TabId),
     Drop(TabId, TabId, Drop),
     DropPath(TabId, std::path::PathBuf, Drop),
+    /// A file Cmd/Ctrl+clicked in a terminal.
+    Preview(std::path::PathBuf),
 }
 
 impl App {
@@ -114,6 +116,7 @@ impl App {
                             self.activate(dragged);
                         }
                         PaneAction::DropPath(id, path, drop) => self.drop_path(id, path, drop),
+                        PaneAction::Preview(path) => self.open_preview(path),
                     }
                 }
             });
@@ -195,7 +198,9 @@ impl App {
         if resp.hovered() {
             ui.ctx().set_cursor_icon(CursorIcon::Text);
         }
-        self.pane_mouse(ui, id, &resp, inner);
+        if let Some(path) = self.pane_mouse(ui, id, &resp, inner) {
+            actions.push(PaneAction::Preview(path));
+        }
 
         let Some(session) = self.tabs[&id].session() else {
             return;

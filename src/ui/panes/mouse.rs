@@ -1,6 +1,8 @@
 //! Mouse input in a terminal pane: selection, mouse reporting to the application,
 //! scrolling, and Cmd/Ctrl+click on links.
 
+use std::path::PathBuf;
+
 use alacritty_terminal::grid::Scroll;
 use alacritty_terminal::index::{Column, Line, Point};
 use alacritty_terminal::selection::{Selection, SelectionType};
@@ -10,16 +12,21 @@ use eframe::egui::{self, CursorIcon, Id, PointerButton, Rect, Stroke, Ui};
 use crate::app::App;
 use crate::render::cell_at;
 use crate::terminal::input::{MouseButton, encode_mouse};
-use crate::terminal::links::{self, Link};
+use crate::terminal::links::{self, Link, Target};
 use crate::terminal::session::GridSize;
 use crate::workspace::TabId;
 
 impl App {
-    /// Mouse selection, mouse reporting to applications, and wheel scrolling.
-    pub(super) fn pane_mouse(&mut self, ui: &Ui, id: TabId, resp: &egui::Response, inner: Rect) {
-        let Some(session) = self.tabs.get(&id).and_then(|t| t.session()) else {
-            return;
-        };
+    /// Mouse selection, mouse reporting to applications, wheel scrolling and links. Returns a
+    /// file to preview when one was Cmd/Ctrl+clicked.
+    pub(super) fn pane_mouse(
+        &mut self,
+        ui: &Ui,
+        id: TabId,
+        resp: &egui::Response,
+        inner: Rect,
+    ) -> Option<PathBuf> {
+        let session = self.tabs.get(&id).and_then(|t| t.session())?;
         let (mode, display_offset) = {
             let term = session.term.lock();
             (*term.mode(), term.grid().display_offset())
@@ -65,7 +72,8 @@ impl App {
         }
 
         // Cmd+click (Ctrl+click on Linux/Windows) opens the link under the pointer, as in
-        // iTerm2, Ghostty and VS Code. It wins over mouse reporting and selection.
+        // iTerm2, Ghostty and VS Code: URLs in the browser, files in a preview (returned so the
+        // caller opens it after drawing the panes). It wins over mouse reporting and selection.
         if mods.command
             && resp.hovered()
             && let Some(pos) = pointer.filter(|p| inner.contains(*p))
@@ -73,17 +81,20 @@ impl App {
         {
             ui.ctx().set_cursor_icon(CursorIcon::PointingHand);
             self.underline_link(ui, &link, inner, size, display_offset);
-            if resp.clicked()
-                && let Err(err) = crate::platform::open_url(&link.uri)
-            {
-                crate::diag::warn(err);
+            if resp.clicked() {
+                match link.target {
+                    Target::Url(url) => {
+                        if let Err(err) = crate::platform::open_url(&url) {
+                            crate::diag::warn(err);
+                        }
+                    }
+                    Target::File(path) => return Some(path),
+                }
             }
-            return;
+            return None;
         }
 
-        let Some(session) = self.tabs[&id].session() else {
-            return;
-        };
+        let session = self.tabs[&id].session()?;
         let cell = |pos| cell_at(pos, inner, &self.fonts, size);
 
         if reporting {
@@ -131,7 +142,7 @@ impl App {
                     }
                 }
             }
-            return;
+            return None;
         }
 
         // Selection.
@@ -200,16 +211,18 @@ impl App {
         if let Some(text) = selected {
             self.set_clipboard(text);
         }
+        None
     }
 
-    /// The openable link under `pos` in pane `id`, if any.
+    /// The openable link under `pos` in pane `id`, if any (relative paths are under its cwd).
     fn link_at(&mut self, id: TabId, pos: egui::Pos2, inner: Rect) -> Option<Link> {
         let session = self.tabs.get(&id).and_then(|t| t.session())?;
         let (col, line, _) = cell_at(pos, inner, &self.fonts, session.size);
         let term = session.term.lock();
         let offset = term.grid().display_offset() as i32;
         let point = Point::new(Line(line as i32 - offset), Column(col));
-        links::link_at(&term, point, &mut self.url_regex).filter(|l| links::is_openable(&l.uri))
+        let cwd = self.tabs[&id].cwd.as_deref();
+        links::link_at(&term, point, &mut self.link_matchers, cwd)
     }
 
     /// Underline the cells of a hovered link.

@@ -79,8 +79,8 @@ pub struct App {
     pub pane_rects: Vec<(TabId, egui::Rect)>,
     /// Sub-line scroll accumulator in points.
     pub scroll_accum: f32,
-    /// Matches plain-text URLs for Cmd/Ctrl+click (see `terminal::links`).
-    pub url_regex: alacritty_terminal::term::search::RegexSearch,
+    /// Finds URLs and file paths for Cmd/Ctrl+click (see `terminal::links`).
+    pub link_matchers: crate::terminal::links::Matchers,
     /// The mouse pointer is hidden because of typing, until the mouse moves.
     pub pointer_hidden: bool,
     /// Scroll the sidebar so the focused tab is visible (after keyboard navigation).
@@ -187,7 +187,7 @@ impl App {
             view_names: Vec::new(),
             pane_rects: Vec::new(),
             scroll_accum: 0.0,
-            url_regex: crate::terminal::links::url_regex(),
+            link_matchers: Default::default(),
             pointer_hidden: false,
             scroll_to_focused: false,
             switcher: None,
