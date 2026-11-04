@@ -91,6 +91,7 @@ On Linux and Windows, vtt only binds the shortcuts terminals conventionally use 
 | Copy / paste | `Ctrl+Shift+C` / `Ctrl+Shift+V`, plus `Ctrl+V` | `⌘C` / `⌘V` |
 | Select all / copy in a focused preview | `Ctrl+A` / `Ctrl+C` or `Ctrl+Shift+C` | `⌘A` / `⌘C` |
 | Cursor to start / end of line, delete to start of line (sends `Ctrl+A` / `Ctrl+E` / `Ctrl+U` to the shell) | — | `⌘←` / `⌘→` / `⌘⌫` |
+| Cursor one word left / right, delete previous word (sends `Esc B` / `Esc F` / `Esc Backspace`) | — | `⌥←` / `⌥→` / `⌥⌫` |
 
 `Ctrl+C` copies when text is selected; otherwise it sends an interrupt as usual. Set `copy_on_select = true` to copy as soon as you finish selecting with the mouse. Pane-focus and next/previous-tab keys pass through to the shell when there is nothing to move to (a single tab, or no pane in that direction).
 
