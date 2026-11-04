@@ -44,6 +44,24 @@ pub fn encode_key(key: Key, mods: Modifiers, mode: TermMode) -> Option<Vec<u8>> 
         bytes
     };
 
+    // macOS line editing, as in Ghostty and iTerm2's "Natural Text Editing": ⌘←/→ go to the
+    // start/end of the line, ⌘⌫ deletes back to its start, ⌥←/→ move by word, via the
+    // readline/zle Emacs keys. Otherwise the shell gets a bare arrow (⌘ dropped) or
+    // CSI 1;3 D, which zsh doesn't bind by default. ⌥⌫ already sends ESC DEL below.
+    if cfg!(target_os = "macos") && !(mods.ctrl || mods.shift) {
+        let line_edit: Option<&[u8]> = match (mods.mac_cmd, mods.alt, key) {
+            (true, false, Key::ArrowLeft) => Some(b"\x01"),
+            (true, false, Key::ArrowRight) => Some(b"\x05"),
+            (true, false, Key::Backspace) => Some(b"\x15"),
+            (false, true, Key::ArrowLeft) => Some(b"\x1bb"),
+            (false, true, Key::ArrowRight) => Some(b"\x1bf"),
+            _ => None,
+        };
+        if let Some(bytes) = line_edit {
+            return Some(bytes.to_vec());
+        }
+    }
+
     let bytes = match key {
         Key::ArrowUp => cursor_key(b'A'),
         Key::ArrowDown => cursor_key(b'B'),
@@ -212,6 +230,31 @@ mod tests {
             encode_key(Key::ArrowRight, m(true, true, false), TermMode::NONE).unwrap(),
             b"\x1b[1;4C"
         );
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn mac_line_editing() {
+        let cmd = Modifiers {
+            mac_cmd: true,
+            command: true,
+            ..Default::default()
+        };
+        let enc = |k| encode_key(k, cmd, TermMode::APP_CURSOR).unwrap();
+        assert_eq!(enc(Key::ArrowLeft), [0x01]);
+        assert_eq!(enc(Key::ArrowRight), [0x05]);
+        assert_eq!(enc(Key::Backspace), [0x15]);
+        // With another modifier it's not the line-editing chord.
+        let cmd_shift = Modifiers { shift: true, ..cmd };
+        assert_eq!(
+            encode_key(Key::ArrowLeft, cmd_shift, TermMode::NONE).unwrap(),
+            b"\x1b[1;2D"
+        );
+        // Option moves by word and deletes the previous word.
+        let opt = |k| encode_key(k, m(false, true, false), TermMode::APP_CURSOR).unwrap();
+        assert_eq!(opt(Key::ArrowLeft), b"\x1bb");
+        assert_eq!(opt(Key::ArrowRight), b"\x1bf");
+        assert_eq!(opt(Key::Backspace), b"\x1b\x7f");
     }
 
     #[test]
