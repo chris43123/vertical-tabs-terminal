@@ -126,6 +126,10 @@ fn gestures() -> Vec<(&'static str, Vec<(&'static str, &'static str)>)> {
         ("Alt+drag", "Block selection"),
         ("Shift+drag", "Select even when the app uses the mouse"),
         ("Right click", "Copy the selection, or paste"),
+        (
+            if mac { "⌘+click" } else { "Ctrl+click" },
+            "Open the link under the pointer",
+        ),
         ("Wheel", "Scroll back (apps that use the mouse get it)"),
     ]);
     vec![

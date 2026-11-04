@@ -1,15 +1,17 @@
-//! Mouse input in a terminal pane: selection, mouse reporting to the application, and
-//! scrolling.
+//! Mouse input in a terminal pane: selection, mouse reporting to the application,
+//! scrolling, and Cmd/Ctrl+click on links.
 
 use alacritty_terminal::grid::Scroll;
 use alacritty_terminal::index::{Column, Line, Point};
 use alacritty_terminal::selection::{Selection, SelectionType};
 use alacritty_terminal::term::TermMode;
-use eframe::egui::{self, Id, PointerButton, Rect, Ui};
+use eframe::egui::{self, CursorIcon, Id, PointerButton, Rect, Stroke, Ui};
 
 use crate::app::App;
 use crate::render::cell_at;
 use crate::terminal::input::{MouseButton, encode_mouse};
+use crate::terminal::links::{self, Link};
+use crate::terminal::session::GridSize;
 use crate::workspace::TabId;
 
 impl App {
@@ -60,6 +62,23 @@ impl App {
                     );
                 }
             }
+        }
+
+        // Cmd+click (Ctrl+click on Linux/Windows) opens the link under the pointer, as in
+        // iTerm2, Ghostty and VS Code. It wins over mouse reporting and selection.
+        if mods.command
+            && resp.hovered()
+            && let Some(pos) = pointer.filter(|p| inner.contains(*p))
+            && let Some(link) = self.link_at(id, pos, inner)
+        {
+            ui.ctx().set_cursor_icon(CursorIcon::PointingHand);
+            self.underline_link(ui, &link, inner, size, display_offset);
+            if resp.clicked()
+                && let Err(err) = crate::platform::open_url(&link.uri)
+            {
+                crate::diag::warn(err);
+            }
+            return;
         }
 
         let Some(session) = self.tabs[&id].session() else {
@@ -180,6 +199,44 @@ impl App {
         }
         if let Some(text) = selected {
             self.set_clipboard(text);
+        }
+    }
+
+    /// The openable link under `pos` in pane `id`, if any.
+    fn link_at(&mut self, id: TabId, pos: egui::Pos2, inner: Rect) -> Option<Link> {
+        let session = self.tabs.get(&id).and_then(|t| t.session())?;
+        let (col, line, _) = cell_at(pos, inner, &self.fonts, session.size);
+        let term = session.term.lock();
+        let offset = term.grid().display_offset() as i32;
+        let point = Point::new(Line(line as i32 - offset), Column(col));
+        links::link_at(&term, point, &mut self.url_regex).filter(|l| links::is_openable(&l.uri))
+    }
+
+    /// Underline the cells of a hovered link.
+    fn underline_link(&self, ui: &Ui, link: &Link, inner: Rect, size: GridSize, offset: usize) {
+        let cell = self.fonts.cell_size();
+        let (start, end) = (*link.range.start(), *link.range.end());
+        let stroke = Stroke::new(1.0, self.chrome.accent);
+        for grid_line in start.line.0..=end.line.0 {
+            // Grid line -> row on screen; skip rows scrolled out of view.
+            let row = grid_line + offset as i32;
+            if row < 0 || row as usize >= size.lines {
+                continue;
+            }
+            let first = if grid_line == start.line.0 {
+                start.column.0
+            } else {
+                0
+            };
+            let last = if grid_line == end.line.0 {
+                end.column.0
+            } else {
+                size.cols.saturating_sub(1)
+            };
+            let y = inner.min.y + (row + 1) as f32 * cell.y - 1.0;
+            let x0 = inner.min.x + first as f32 * cell.x;
+            let x1 = inner.min.x + (last + 1) as f32 * cell.x;
+            ui.painter().hline(x0..=x1, y, stroke);
         }
     }
 
