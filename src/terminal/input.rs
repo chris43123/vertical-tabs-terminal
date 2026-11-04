@@ -44,6 +44,18 @@ pub fn encode_key(key: Key, mods: Modifiers, mode: TermMode) -> Option<Vec<u8>> 
         bytes
     };
 
+    // macOS line editing, as in Terminal.app/iTerm2/Ghostty: ⌘←/→ go to the start/end of the
+    // line and ⌘⌫ deletes back to its start, via the readline/zle Emacs keys. Without this the
+    // ⌘ is dropped and the shell sees a bare arrow.
+    if cfg!(target_os = "macos") && mods.mac_cmd && !(mods.ctrl || mods.alt || mods.shift) {
+        match key {
+            Key::ArrowLeft => return Some(vec![0x01]),
+            Key::ArrowRight => return Some(vec![0x05]),
+            Key::Backspace => return Some(vec![0x15]),
+            _ => {}
+        }
+    }
+
     let bytes = match key {
         Key::ArrowUp => cursor_key(b'A'),
         Key::ArrowDown => cursor_key(b'B'),
@@ -211,6 +223,26 @@ mod tests {
         assert_eq!(
             encode_key(Key::ArrowRight, m(true, true, false), TermMode::NONE).unwrap(),
             b"\x1b[1;4C"
+        );
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn cmd_line_editing() {
+        let cmd = Modifiers {
+            mac_cmd: true,
+            command: true,
+            ..Default::default()
+        };
+        let enc = |k| encode_key(k, cmd, TermMode::APP_CURSOR).unwrap();
+        assert_eq!(enc(Key::ArrowLeft), [0x01]);
+        assert_eq!(enc(Key::ArrowRight), [0x05]);
+        assert_eq!(enc(Key::Backspace), [0x15]);
+        // With another modifier it's not the line-editing chord.
+        let cmd_shift = Modifiers { shift: true, ..cmd };
+        assert_eq!(
+            encode_key(Key::ArrowLeft, cmd_shift, TermMode::NONE).unwrap(),
+            b"\x1b[1;2D"
         );
     }
 
