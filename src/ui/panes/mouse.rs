@@ -26,6 +26,9 @@ impl App {
         resp: &egui::Response,
         inner: Rect,
     ) -> Option<PathBuf> {
+        if self.hovered_link.as_ref().is_some_and(|(h, _)| *h == id) {
+            self.hovered_link = None;
+        }
         let session = self.tabs.get(&id).and_then(|t| t.session())?;
         let (mode, display_offset) = {
             let term = session.term.lock();
@@ -80,7 +83,8 @@ impl App {
             && let Some(link) = self.link_at(id, pos, inner)
         {
             ui.ctx().set_cursor_icon(CursorIcon::PointingHand);
-            self.underline_link(ui, &link, inner, size, display_offset);
+            // Underlined by the caller, on top of the text painted after this.
+            self.hovered_link = Some((id, link.clone()));
             if resp.clicked() {
                 match link.target {
                     Target::Url(url) => {
@@ -225,8 +229,15 @@ impl App {
         links::link_at(&term, point, &mut self.link_matchers, cwd)
     }
 
-    /// Underline the cells of a hovered link.
-    fn underline_link(&self, ui: &Ui, link: &Link, inner: Rect, size: GridSize, offset: usize) {
+    /// Underline the cells of a hovered link. `offset` is the grid's display offset.
+    pub(super) fn underline_link(
+        &self,
+        painter: &egui::Painter,
+        link: &Link,
+        inner: Rect,
+        size: GridSize,
+        offset: usize,
+    ) {
         let cell = self.fonts.cell_size();
         let (start, end) = (*link.range.start(), *link.range.end());
         let stroke = Stroke::new(1.0, self.chrome.accent);
@@ -249,7 +260,7 @@ impl App {
             let y = inner.min.y + (row + 1) as f32 * cell.y - 1.0;
             let x0 = inner.min.x + first as f32 * cell.x;
             let x1 = inner.min.x + (last + 1) as f32 * cell.x;
-            ui.painter().hline(x0..=x1, y, stroke);
+            painter.hline(x0..=x1, y, stroke);
         }
     }
 

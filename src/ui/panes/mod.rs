@@ -230,6 +230,10 @@ impl App {
                     cursor_visible,
                 },
             );
+            if let Some((_, link)) = self.hovered_link.as_ref().filter(|(h, _)| *h == id) {
+                let offset = term.grid().display_offset();
+                self.underline_link(&ui.painter_at(inner), link, inner, session.size, offset);
+            }
         }
         // Dim inactive panes a little so the focused one stands out.
         if split && !focused {
