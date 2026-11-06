@@ -28,6 +28,7 @@ Inspired by Warp, minus the weight: Warp's good ideas (a file tree that follows 
 - **File search.** Fuzzy-find any file in the project from the files panel.
 - **Reset tab.** Every tab remembers how it was launched (shell, directory, name). "Reset tab" (`⌘⇧R` on macOS, or the palette and the tab's right-click menu) kills everything running in it, background jobs included, and starts a fresh shell in the same slot, split and folder, in the directory it was opened in. A wedged REPL, a hung `ssh` or a runaway build is one click from a clean prompt. It asks first if a program is running (`confirm_reset`; on Windows vtt can't tell, so it never asks). On Linux/macOS, processes that detach with `setsid` (daemons) leave the tab's session and survive by design.
 - **Closing the last tab keeps vtt open**, on an empty screen with the new-tab shortcut, a New terminal button and Reopen closed tab. A new tab there starts in the directory of the tab closed last. Quit with `⌘Q` on macOS or by closing the window.
+- **Clickable links and paths.** `⌘`+click (`Ctrl`+click on Linux/Windows) opens a URL in the browser, whether it's printed as text (even when it wraps onto the next line, including when a program like Claude Code breaks the line and indents the rest itself) or a hyperlink a program set (OSC 8). A file path opens in a preview pane instead: absolute (`/…`), from home (`~/…`) or relative to the tab's directory (`docs/plan.md`, `./notes.md`), with any `:line:col` after it ignored, so the paths coding agents print are one click away. Holding the modifier underlines what can be opened. Only files that exist count, and only `http(s)`, `mailto`, `file` and `ftp` links open.
 - **Hover a tab** for a moment to see its full working directory and the program running in it.
 - **Auto titles.** A tab shows the title the shell sets, or `<process> · <cwd>` (on Linux and macOS).
 - **Activity indicators.** A dot appears when a background tab prints output, and a badge on a bell or when the process exits.
@@ -90,6 +91,7 @@ On Linux and Windows, vtt only binds the shortcuts terminals conventionally use 
 | Keyboard shortcuts: every shortcut and mouse gesture, click one to rebind it | `Ctrl+Shift+/` (`Ctrl+?`) | `⌘⇧/` (`⌘?`) |
 | Copy / paste | `Ctrl+Shift+C` / `Ctrl+Shift+V`, plus `Ctrl+V` | `⌘C` / `⌘V` |
 | Select all / copy in a focused preview | `Ctrl+A` / `Ctrl+C` or `Ctrl+Shift+C` | `⌘A` / `⌘C` |
+| Open the link under the pointer (a URL in the browser, a file path in a preview) | `Ctrl+click` | `⌘+click` |
 
 `Ctrl+C` copies when text is selected; otherwise it sends an interrupt as usual. Set `copy_on_select = true` to copy as soon as you finish selecting with the mouse. Pane-focus and next/previous-tab keys pass through to the shell when there is nothing to move to (a single tab, or no pane in that direction).
 

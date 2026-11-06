@@ -1,23 +1,35 @@
-//! Mouse input in a terminal pane: selection, mouse reporting to the application, and
-//! scrolling.
+//! Mouse input in a terminal pane: selection, mouse reporting to the application,
+//! scrolling, and Cmd/Ctrl+click on links.
+
+use std::path::PathBuf;
 
 use alacritty_terminal::grid::Scroll;
 use alacritty_terminal::index::{Column, Line, Point};
 use alacritty_terminal::selection::{Selection, SelectionType};
 use alacritty_terminal::term::TermMode;
-use eframe::egui::{self, Id, PointerButton, Rect, Ui};
+use eframe::egui::{self, CursorIcon, Id, PointerButton, Rect, Stroke, Ui};
 
 use crate::app::App;
 use crate::render::cell_at;
 use crate::terminal::input::{MouseButton, encode_mouse};
+use crate::terminal::links::{self, Link, Target};
+use crate::terminal::session::GridSize;
 use crate::workspace::TabId;
 
 impl App {
-    /// Mouse selection, mouse reporting to applications, and wheel scrolling.
-    pub(super) fn pane_mouse(&mut self, ui: &Ui, id: TabId, resp: &egui::Response, inner: Rect) {
-        let Some(session) = self.tabs.get(&id).and_then(|t| t.session()) else {
-            return;
-        };
+    /// Mouse selection, mouse reporting to applications, wheel scrolling and links. Returns a
+    /// file to preview when one was Cmd/Ctrl+clicked.
+    pub(super) fn pane_mouse(
+        &mut self,
+        ui: &Ui,
+        id: TabId,
+        resp: &egui::Response,
+        inner: Rect,
+    ) -> Option<PathBuf> {
+        if self.hovered_link.as_ref().is_some_and(|(h, _)| *h == id) {
+            self.hovered_link = None;
+        }
+        let session = self.tabs.get(&id).and_then(|t| t.session())?;
         let (mode, display_offset) = {
             let term = session.term.lock();
             (*term.mode(), term.grid().display_offset())
@@ -62,9 +74,31 @@ impl App {
             }
         }
 
-        let Some(session) = self.tabs[&id].session() else {
-            return;
-        };
+        // Cmd+click (Ctrl+click on Linux/Windows) opens the link under the pointer, as in
+        // iTerm2, Ghostty and VS Code: URLs in the browser, files in a preview (returned so the
+        // caller opens it after drawing the panes). It wins over mouse reporting and selection.
+        if mods.command
+            && resp.hovered()
+            && let Some(pos) = pointer.filter(|p| inner.contains(*p))
+            && let Some(link) = self.link_at(id, pos, inner)
+        {
+            ui.ctx().set_cursor_icon(CursorIcon::PointingHand);
+            // Underlined by the caller, on top of the text painted after this.
+            self.hovered_link = Some((id, link.clone()));
+            if resp.clicked() {
+                match link.target {
+                    Target::Url(url) => {
+                        if let Err(err) = crate::platform::open_url(&url) {
+                            crate::diag::warn(err);
+                        }
+                    }
+                    Target::File(path) => return Some(path),
+                }
+            }
+            return None;
+        }
+
+        let session = self.tabs[&id].session()?;
         let cell = |pos| cell_at(pos, inner, &self.fonts, size);
 
         if reporting {
@@ -112,7 +146,7 @@ impl App {
                     }
                 }
             }
-            return;
+            return None;
         }
 
         // Selection.
@@ -180,6 +214,67 @@ impl App {
         }
         if let Some(text) = selected {
             self.set_clipboard(text);
+        }
+        None
+    }
+
+    /// The openable link under `pos` in pane `id`, if any (relative paths are under its cwd).
+    fn link_at(&mut self, id: TabId, pos: egui::Pos2, inner: Rect) -> Option<Link> {
+        let session = self.tabs.get(&id).and_then(|t| t.session())?;
+        let (col, line, _) = cell_at(pos, inner, &self.fonts, session.size);
+        let term = session.term.lock();
+        let offset = term.grid().display_offset() as i32;
+        let point = Point::new(Line(line as i32 - offset), Column(col));
+        let cwd = self.tabs[&id].cwd.as_deref();
+        links::link_at(&term, point, &mut self.link_matchers, cwd)
+    }
+
+    /// Underline the cells of a hovered link. `offset` is the grid's display offset.
+    pub(super) fn underline_link(
+        &self,
+        painter: &egui::Painter,
+        link: &Link,
+        inner: Rect,
+        size: GridSize,
+        offset: usize,
+    ) {
+        for segment in &link.segments {
+            self.underline_cells(painter, segment, inner, size, offset);
+        }
+    }
+
+    /// Underline a range of cells, which may span soft-wrapped rows.
+    fn underline_cells(
+        &self,
+        painter: &egui::Painter,
+        range: &std::ops::RangeInclusive<Point>,
+        inner: Rect,
+        size: GridSize,
+        offset: usize,
+    ) {
+        let cell = self.fonts.cell_size();
+        let (start, end) = (*range.start(), *range.end());
+        let stroke = Stroke::new(1.0, self.chrome.accent);
+        for grid_line in start.line.0..=end.line.0 {
+            // Grid line -> row on screen; skip rows scrolled out of view.
+            let row = grid_line + offset as i32;
+            if row < 0 || row as usize >= size.lines {
+                continue;
+            }
+            let first = if grid_line == start.line.0 {
+                start.column.0
+            } else {
+                0
+            };
+            let last = if grid_line == end.line.0 {
+                end.column.0
+            } else {
+                size.cols.saturating_sub(1)
+            };
+            let y = inner.min.y + (row + 1) as f32 * cell.y - 1.0;
+            let x0 = inner.min.x + first as f32 * cell.x;
+            let x1 = inner.min.x + (last + 1) as f32 * cell.x;
+            painter.hline(x0..=x1, y, stroke);
         }
     }
 

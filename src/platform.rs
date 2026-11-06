@@ -37,6 +37,21 @@ pub fn open_in_text_editor(path: &Path) -> Result<(), String> {
     })
 }
 
+/// Open a URL in the default browser (or mail client, for `mailto:`).
+pub fn open_url(url: &str) -> Result<(), String> {
+    let cmd = if cfg!(target_os = "macos") {
+        Command::new("open")
+    } else if cfg!(windows) {
+        // Not `cmd /C start`: cmd would treat the `&` in query strings as a command separator.
+        let mut c = Command::new("rundll32");
+        c.arg("url.dll,FileProtocolHandler");
+        c
+    } else {
+        Command::new("xdg-open")
+    };
+    spawn_detached(cmd, Path::new(url)).map_err(|e| format!("couldn't open {url}: {e}"))
+}
+
 /// Run `cmd path` without tying its stdio to vtt.
 fn spawn_detached(mut cmd: Command, path: &Path) -> std::io::Result<()> {
     cmd.arg(path)

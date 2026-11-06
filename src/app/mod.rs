@@ -79,6 +79,10 @@ pub struct App {
     pub pane_rects: Vec<(TabId, egui::Rect)>,
     /// Sub-line scroll accumulator in points.
     pub scroll_accum: f32,
+    /// Finds URLs and file paths for Cmd/Ctrl+click (see `terminal::links`).
+    pub link_matchers: crate::terminal::links::Matchers,
+    /// The link under the pointer while Cmd/Ctrl is held, underlined when its pane is painted.
+    pub hovered_link: Option<(crate::workspace::TabId, crate::terminal::links::Link)>,
     /// The mouse pointer is hidden because of typing, until the mouse moves.
     pub pointer_hidden: bool,
     /// Scroll the sidebar so the focused tab is visible (after keyboard navigation).
@@ -185,6 +189,8 @@ impl App {
             view_names: Vec::new(),
             pane_rects: Vec::new(),
             scroll_accum: 0.0,
+            link_matchers: Default::default(),
+            hovered_link: None,
             pointer_hidden: false,
             scroll_to_focused: false,
             switcher: None,

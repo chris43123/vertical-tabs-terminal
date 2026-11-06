@@ -2,6 +2,7 @@
 //! keyboard/mouse encoding and foreground-process inspection.
 
 pub mod input;
+pub mod links;
 pub mod procinfo;
 pub mod profiles;
 pub mod pty;
