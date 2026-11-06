@@ -1,11 +1,12 @@
 //! Finding the link under the pointer: an OSC 8 hyperlink set by the program, a URL printed
-//! as plain text, or the path of a file that exists (all followed across soft-wrapped lines).
+//! as plain text, or the path of a file that exists. Text links are followed across soft
+//! wraps, and across the hard wraps TUIs like Claude Code make themselves.
 
 use std::ops::RangeInclusive;
 use std::path::{Path, PathBuf};
 
 use alacritty_terminal::grid::Dimensions;
-use alacritty_terminal::index::{Boundary, Direction, Point};
+use alacritty_terminal::index::{Boundary, Column, Direction, Line, Point};
 use alacritty_terminal::term::Term;
 use alacritty_terminal::term::search::{RegexIter, RegexSearch};
 
@@ -32,11 +33,18 @@ pub enum Target {
     File(PathBuf),
 }
 
-/// A link and the cells it covers (grid coordinates).
+/// A link and the cells it covers (grid coordinates): one range, or several when the link
+/// continues on the next line after a hard wrap (see [`extend_hard_wrap`]).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Link {
     pub target: Target,
-    pub range: RangeInclusive<Point>,
+    pub segments: Vec<RangeInclusive<Point>>,
+}
+
+impl Link {
+    pub fn contains(&self, point: Point) -> bool {
+        self.segments.iter().any(|s| s.contains(&point))
+    }
 }
 
 /// The regexes used to find links in text. Building them is not free; keep one around.
@@ -61,6 +69,9 @@ fn is_openable(uri: &str) -> bool {
     SCHEMES.iter().any(|s| lower.starts_with(s))
 }
 
+/// How many rows a hard-wrapped link is followed across.
+const MAX_WRAPPED_ROWS: usize = 8;
+
 /// The link at `point`, if any. OSC 8 hyperlinks win over text that looks like a URL, and
 /// URLs over paths. Relative paths are resolved against `cwd`.
 pub fn link_at<T>(
@@ -72,24 +83,136 @@ pub fn link_at<T>(
     if point.line < term.topmost_line() || point.line > term.bottommost_line() {
         return None;
     }
-    let link = |(uri, range): (String, _)| {
-        Some(Link {
+    continued_from_above(term, point, matchers, cwd, MAX_WRAPPED_ROWS)
+        .or_else(|| link_from(term, point, matchers, cwd))
+}
+
+/// The link at `point` that starts on its row or, wrapped, on the rows above.
+fn link_from<T>(
+    term: &Term<T>,
+    point: Point,
+    matchers: &mut Matchers,
+    cwd: Option<&Path>,
+) -> Option<Link> {
+    if let Some((uri, range)) = hyperlink_at(term, point) {
+        return Some(Link {
             target: uri_target(&uri)?,
-            range,
-        })
-    };
-    if let Some(hyperlink) = hyperlink_at(term, point) {
-        return link(hyperlink);
+            segments: vec![range],
+        });
     }
-    if let Some(url) = match_at(term, point, &mut matchers.url) {
-        return link(url);
+    if let Some(found) = match_at(term, point, &mut matchers.url) {
+        let (uri, segments) = extend_hard_wrap(term, found);
+        return Some(Link {
+            target: uri_target(&uri)?,
+            segments,
+        });
     }
-    let (text, range) = match_at(term, point, &mut matchers.path)?;
-    let path = resolve_path(&text, cwd)?;
+    let found = match_at(term, point, &mut matchers.path)?;
+    let (text, segments) = extend_hard_wrap(term, found);
     Some(Link {
-        target: Target::File(path),
-        range,
+        target: Target::File(resolve_path(&text, cwd)?),
+        segments,
     })
+}
+
+/// When `point` is in the first word of its row and the row above ends at the right edge,
+/// the link may have started up there (see [`extend_hard_wrap`]); find it from there.
+fn continued_from_above<T>(
+    term: &Term<T>,
+    point: Point,
+    matchers: &mut Matchers,
+    cwd: Option<&Path>,
+    rows: usize,
+) -> Option<Link> {
+    if rows == 0 || point.line <= term.topmost_line() {
+        return None;
+    }
+    let first = first_non_blank(term, point.line)?;
+    let in_first_word = (first..=point.column.0).all(|c| !is_blank(term, point.line, c));
+    if point.column.0 < first || !in_first_word {
+        return None;
+    }
+    let above = point.line - 1i32;
+    let last = last_non_blank(term, above).filter(|&c| at_right_edge(term, c))?;
+    let from = Point::new(above, Column(last));
+    continued_from_above(term, from, matchers, cwd, rows - 1)
+        .or_else(|| link_from(term, from, matchers, cwd))
+        .filter(|link| link.contains(point))
+}
+
+/// Follow a link that a program wrapped itself, with a newline and an indent rather than a
+/// terminal soft wrap (Claude Code and other TUIs do this): while the match is the last thing
+/// on a row that is full up to the right edge, append the first word of the next row.
+fn extend_hard_wrap<T>(
+    term: &Term<T>,
+    (mut text, first): (String, RangeInclusive<Point>),
+) -> (String, Vec<RangeInclusive<Point>>) {
+    let mut segments = vec![first];
+    let cols = term.columns();
+    while segments.len() <= MAX_WRAPPED_ROWS {
+        let end = *segments.last().expect("one segment").end();
+        if end.line >= term.bottommost_line()
+            || !at_right_edge(term, end.column.0)
+            || last_non_blank(term, end.line) != Some(end.column.0)
+        {
+            break;
+        }
+        let next = end.line + 1i32;
+        let Some(start) = first_non_blank(term, next) else {
+            break;
+        };
+        let mut col = start;
+        while col < cols {
+            let c = term.grid()[next][Column(col)].c;
+            if !is_link_char(c) {
+                break;
+            }
+            text.push(c);
+            col += 1;
+        }
+        if col == start {
+            break;
+        }
+        segments.push(Point::new(next, Column(start))..=Point::new(next, Column(col - 1)));
+    }
+    if segments.len() > 1 {
+        // Trailing punctuation on the last piece ("…/69.").
+        let cut = text.chars().count() - trim_url(&text).chars().count();
+        text.truncate(trim_url(&text).len());
+        let last = segments.pop().expect("more than one segment");
+        let (start, end) = (*last.start(), *last.end());
+        if end.column.0 >= start.column.0 + cut {
+            segments.push(start..=Point::new(end.line, end.column - cut));
+        }
+    }
+    (text, segments)
+}
+
+/// Columns a hard-wrapped row may stop short of the edge (some TUIs keep a margin).
+const EDGE_SLACK: usize = 1;
+
+fn at_right_edge<T>(term: &Term<T>, col: usize) -> bool {
+    col + 1 + EDGE_SLACK >= term.columns()
+}
+
+fn is_blank<T>(term: &Term<T>, line: Line, col: usize) -> bool {
+    matches!(term.grid()[line][Column(col)].c, ' ' | '\0')
+}
+
+fn first_non_blank<T>(term: &Term<T>, line: Line) -> Option<usize> {
+    (0..term.columns()).find(|&c| !is_blank(term, line, c))
+}
+
+fn last_non_blank<T>(term: &Term<T>, line: Line) -> Option<usize> {
+    (0..term.columns())
+        .rev()
+        .find(|&c| !is_blank(term, line, c))
+}
+
+/// Characters that can continue a wrapped URL or path: not whitespace, and not the delimiters
+/// excluded from [`URL_PATTERN`].
+fn is_link_char(c: char) -> bool {
+    !c.is_whitespace() && !c.is_control() && !"<>\"{}^⟨⟩`\\".contains(c) && c != '\0'
 }
 
 /// A local `file://` URI that exists becomes a preview; other allowed schemes go to the OS.
@@ -224,7 +347,6 @@ fn trim_url(url: &str) -> &str {
 mod tests {
     use super::*;
     use alacritty_terminal::event::VoidListener;
-    use alacritty_terminal::index::{Column, Line};
     use alacritty_terminal::term::Config;
     use alacritty_terminal::vte::ansi::Processor;
 
@@ -281,7 +403,7 @@ mod tests {
         let mut m = Matchers::default();
         let link = link_at(&t, at(0, 10), &mut m, None).unwrap();
         assert_eq!(link.target, url("https://google.com/search?q=a"));
-        assert_eq!(link.range, at(0, 4)..=at(0, 32));
+        assert_eq!(link.segments, vec![at(0, 4)..=at(0, 32)]);
         // On the trimmed period and on plain words: nothing.
         assert_eq!(link_at(&t, at(0, 33), &mut m, None), None);
         assert_eq!(link_at(&t, at(0, 1), &mut m, None), None);
@@ -293,7 +415,33 @@ mod tests {
         let mut m = Matchers::default();
         let link = link_at(&t, at(1, 2), &mut m, None).unwrap();
         assert_eq!(link.target, url("https://example.org/x"));
-        assert_eq!(link.range, at(0, 0)..=at(1, 8));
+        assert_eq!(link.segments, vec![at(0, 0)..=at(1, 8)]);
+    }
+
+    #[test]
+    fn follows_a_url_a_program_wrapped_with_an_indent() {
+        // A 30-column row filled to the edge, then a newline and an indent (Claude Code style).
+        let t = term(30, b"go: https://x.org/aaaaaaaaaaaa\r\n  bbbb/cc. next");
+        let mut m = Matchers::default();
+        let want = url("https://x.org/aaaaaaaaaaaabbbb/cc");
+        let segments = vec![at(0, 4)..=at(0, 29), at(1, 2)..=at(1, 8)];
+        for point in [at(0, 10), at(1, 2), at(1, 8)] {
+            let link = link_at(&t, point, &mut m, None).unwrap();
+            assert_eq!(link.target, want, "{point:?}");
+            assert_eq!(link.segments, segments, "{point:?}");
+        }
+        assert_eq!(link_at(&t, at(1, 9), &mut m, None), None);
+        assert_eq!(link_at(&t, at(1, 12), &mut m, None), None);
+    }
+
+    #[test]
+    fn a_url_short_of_the_edge_does_not_take_the_next_line() {
+        let t = term(30, b"go: https://x.org/a\r\n  bbbb");
+        let mut m = Matchers::default();
+        let link = link_at(&t, at(0, 6), &mut m, None).unwrap();
+        assert_eq!(link.target, url("https://x.org/a"));
+        assert_eq!(link.segments, vec![at(0, 4)..=at(0, 18)]);
+        assert_eq!(link_at(&t, at(1, 3), &mut m, None), None);
     }
 
     #[test]
@@ -305,7 +453,7 @@ mod tests {
         let mut m = Matchers::default();
         let link = link_at(&t, at(0, 4), &mut m, None).unwrap();
         assert_eq!(link.target, url("https://anthropic.com"));
-        assert_eq!(link.range, at(0, 3)..=at(0, 6));
+        assert_eq!(link.segments, vec![at(0, 3)..=at(0, 6)]);
         assert_eq!(link_at(&t, at(0, 8), &mut m, None), None);
     }
 
@@ -340,7 +488,7 @@ mod tests {
         let t = term(60, b"wrote docs/plan.md:3, see notes.md.");
         let link = link_at(&t, at(0, 8), &mut m, Some(&dir)).unwrap();
         assert_eq!(link.target, Target::File(dir.join("docs/plan.md")));
-        assert_eq!(link.range, at(0, 6)..=at(0, 19));
+        assert_eq!(link.segments, vec![at(0, 6)..=at(0, 19)]);
         // Words and files that don't exist aren't links.
         assert_eq!(link_at(&t, at(0, 1), &mut m, Some(&dir)), None);
         assert_eq!(link_at(&t, at(0, 28), &mut m, Some(&dir)), None);
@@ -351,7 +499,7 @@ mod tests {
         let t = term(200, abs.as_bytes());
         let link = link_at(&t, at(0, 3), &mut m, None).unwrap();
         assert_eq!(link.target, Target::File(dir.join("docs/plan.md")));
-        assert_eq!(link.range, at(0, 1)..=at(0, abs.len() - 2));
+        assert_eq!(link.segments, vec![at(0, 1)..=at(0, abs.len() - 2)]);
 
         let uri = format!("file://{}", dir.join("docs/plan.md").display());
         let t = term(200, uri.as_bytes());

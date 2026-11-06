@@ -238,8 +238,22 @@ impl App {
         size: GridSize,
         offset: usize,
     ) {
+        for segment in &link.segments {
+            self.underline_cells(painter, segment, inner, size, offset);
+        }
+    }
+
+    /// Underline a range of cells, which may span soft-wrapped rows.
+    fn underline_cells(
+        &self,
+        painter: &egui::Painter,
+        range: &std::ops::RangeInclusive<Point>,
+        inner: Rect,
+        size: GridSize,
+        offset: usize,
+    ) {
         let cell = self.fonts.cell_size();
-        let (start, end) = (*link.range.start(), *link.range.end());
+        let (start, end) = (*range.start(), *range.end());
         let stroke = Stroke::new(1.0, self.chrome.accent);
         for grid_line in start.line.0..=end.line.0 {
             // Grid line -> row on screen; skip rows scrolled out of view.
